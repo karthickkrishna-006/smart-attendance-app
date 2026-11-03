@@ -1,9 +1,9 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../../core/fmt.dart';
 import '../../core/theme.dart';
 import '../../core/ui.dart';
 import '../../services/db.dart';
+import '../../services/face_service.dart';
 import '../../services/models.dart';
 import '../worker/face_enroll_screen.dart';
 import '../worker/my_attendance_screen.dart';
@@ -18,7 +18,7 @@ class WorkerDetailScreen extends StatelessWidget {
   Future<void> _resetFace(BuildContext context, AppUser w) async {
     if (!await confirm(context, 'Delete face reference', 'This deletes the stored biometric reference for ${w.name}. They must re-enrol before face verification.', ok: 'Delete', danger: true)) return;
     try {
-      await Db.col('users').doc(w.uid).update({'faceEmbedding': FieldValue.delete(), 'photo': FieldValue.delete(), 'faceEnrolledAt': FieldValue.delete()});
+      await FaceTemplates.delete(w.uid);
       await Db.audit('face_reference_deleted', 'users/${w.uid}');
       if (context.mounted) showSnack(context, 'Face reference deleted.', success: true);
     } catch (e) {
@@ -60,7 +60,7 @@ class WorkerDetailScreen extends StatelessWidget {
                   child: Padding(
                     padding: const EdgeInsets.all(18),
                     child: Column(children: [
-                      AvatarCircle(name: w.name, photo: w.photo, radius: 38),
+                      AvatarCircle(name: w.name, radius: 38),
                       const SizedBox(height: 10),
                       Text(w.name, style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
                       const SizedBox(height: 6),
@@ -88,20 +88,20 @@ class WorkerDetailScreen extends StatelessWidget {
                         InfoRow(Icons.account_tree_outlined, 'Block › Panchayat',
                             b.data?.data() == null ? '—' : '${b.data!.data()!['block'] ?? ''} › ${b.data!.data()!['panchayat'] ?? ''}'),
                         InfoRow(Icons.login, 'App login', w.hasLogin ? 'Yes' : 'No (record only)'),
-                        InfoRow(Icons.face, 'Face reference', w.faceEmbedding == null ? 'Not enrolled' : 'Enrolled ${fmtDate(w.raw['faceEnrolledAt'])}',
-                            color: w.faceEmbedding == null ? AppColors.warning : AppColors.success),
+                        InfoRow(Icons.face, 'Face reference', !w.faceEnrolled ? 'Not enrolled' : 'Enrolled ${fmtDate(w.raw['faceEnrolledAt'])}',
+                            color: !w.faceEnrolled ? AppColors.warning : AppColors.success),
                       ]),
                     ),
                   ),
                 ),
                 const SizedBox(height: 12),
-                if (me.isStaff && w.faceEmbedding == null)
+                if (me.isStaff && !w.faceEnrolled && w.hasLogin)
                   OutlinedButton.icon(
                     onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => FaceEnrollScreen(target: w))),
                     icon: const Icon(Icons.face_retouching_natural),
                     label: const Text('Enrol face (worker present with this phone)'),
                   ),
-                if (me.isAdmin && w.faceEmbedding != null)
+                if (me.isAdmin && w.faceEnrolled)
                   OutlinedButton.icon(
                     style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger),
                     onPressed: () => _resetFace(context, w),

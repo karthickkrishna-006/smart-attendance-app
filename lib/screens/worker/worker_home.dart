@@ -52,7 +52,7 @@ class _WorkerHomeState extends State<WorkerHome> {
                 ),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Row(children: [
-                    AvatarCircle(name: me.name, photo: me.photo, radius: 24),
+                    AvatarCircle(name: me.name, radius: 24),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -85,7 +85,7 @@ class _WorkerHomeState extends State<WorkerHome> {
               padding: const EdgeInsets.all(16),
               sliver: SliverList(
                 delegate: SliverChildListDelegate([
-                  if (me.faceEmbedding == null) _enrollBanner(context),
+                  if (!me.faceEnrolled) _enrollBanner(context),
                   _attendanceCard(context, att),
                   const SectionTitle('My assigned area'),
                   _AreaCard(me: me),

@@ -46,7 +46,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
         'status': 'resolved',
         'resolution': note.text.trim(),
         'resolvedBy': widget.me.name,
-        'resolvedAt': Timestamp.now(),
+        'resolvedAt': FieldValue.serverTimestamp(),
       });
       await Db.audit('alert_resolved', 'alerts/${a['id']}');
       if (mounted) showSnack(context, 'Alert resolved.', success: true);

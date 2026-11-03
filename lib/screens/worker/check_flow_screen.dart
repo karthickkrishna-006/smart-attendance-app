@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -79,8 +80,7 @@ class _CheckFlowScreenState extends State<CheckFlowScreen> {
   }
 
   Future<void> _captureFace() async {
-    final ref = widget.me.faceEmbedding;
-    if (ref == null) {
+    if (!widget.me.faceEnrolled) {
       final go = await confirm(context, 'Face not enrolled', 'You need to enrol your reference face before verification. Enrol now?', ok: 'Enrol');
       if (go && mounted) {
         await Navigator.push(context, MaterialPageRoute(builder: (_) => FaceEnrollScreen(target: widget.me)));
@@ -98,7 +98,18 @@ class _CheckFlowScreenState extends State<CheckFlowScreen> {
     if (x == null) return;
     setState(() => _faceBusy = true);
     final threshold = asDouble(_settings?['faceThreshold'], 0.6);
-    final r = await FaceService.verify(x.path, ref, threshold);
+    List<double>? ref;
+    try {
+      ref = await FaceTemplates.readOwn(widget.me.uid); // owner-only read
+    } catch (_) {
+      ref = null;
+    }
+    final r = ref == null
+        ? FaceVerification('unavailable', false, null, threshold, 'Could not read your enrolled face template (offline or not enrolled).')
+        : await FaceService.verify(x.path, ref, threshold);
+    try {
+      await File(x.path).delete(); // selfie is never kept
+    } catch (_) {}
     // Log every verification attempt (auditable)
     try {
       await Db.col('verifications').add({
@@ -107,7 +118,7 @@ class _CheckFlowScreenState extends State<CheckFlowScreen> {
         'name': widget.me.name,
         'type': 'face',
         'context': widget.checkOut ? 'check_out' : 'check_in',
-        'createdAt': Timestamp.now(),
+        'createdAt': FieldValue.serverTimestamp(),
         'date': dayKey(DateTime.now()),
       });
     } catch (_) {}
@@ -149,7 +160,7 @@ class _CheckFlowScreenState extends State<CheckFlowScreen> {
     final ref = Db.col('attendance').doc('${me.uid}_$today');
     final s = _settings!;
     final point = {
-      'time': Timestamp.now(),
+      'time': FieldValue.serverTimestamp(),
       'lat': _pos!.latitude,
       'lng': _pos!.longitude,
       'accuracy': _pos!.accuracy,
@@ -168,7 +179,6 @@ class _CheckFlowScreenState extends State<CheckFlowScreen> {
         'similarity': _face!.similarity,
         'faceThreshold': _face!.threshold,
         'faceMessage': _face!.message,
-        'faceThumb': _face!.thumbnail,
       } else
         'faceStatus': _needFace ? 'not_performed' : 'not_required',
     };
@@ -185,25 +195,37 @@ class _CheckFlowScreenState extends State<CheckFlowScreen> {
         'accuracy': _pos!.accuracy,
         'boundaryId': _boundary?.id,
         'context': widget.checkOut ? 'check_out' : 'check_in',
-        'createdAt': Timestamp.now(),
+        'createdAt': FieldValue.serverTimestamp(),
         'date': today,
       });
       if (widget.checkOut) {
-        await ref.set({'checkOut': point, 'updatedAt': Timestamp.now()}, SetOptions(merge: true));
+        await ref.set({'checkOut': point, 'updatedAt': FieldValue.serverTimestamp()}, SetOptions(merge: true));
         await LiveTracker.stop(markOffDuty: true);
       } else {
-        final status = _computeStatus();
-        await ref.set({
-          'uid': me.uid,
-          'name': me.name,
-          'employeeId': me.employeeId,
-          'date': today,
-          'status': status,
-          'boundaryId': me.boundaryId,
-          'checkIn': point,
-          'synthetic': false,
-          'createdAt': Timestamp.now(),
-        });
+        var status = _computeStatus();
+        Map<String, dynamic> record(String st) => {
+              'uid': me.uid,
+              'name': me.name,
+              'employeeId': me.employeeId,
+              'date': today,
+              'status': st,
+              'boundaryId': me.boundaryId,
+              'checkIn': point,
+              'synthetic': false,
+              'createdAt': FieldValue.serverTimestamp(),
+            };
+        try {
+          await ref.set(record(status));
+        } on FirebaseException catch (e) {
+          // The server re-checks lateness against its own clock (IST). If the
+          // phone clock was slightly behind the cut-off, resubmit as late.
+          if (e.code == 'permission-denied' && status == 'present') {
+            status = 'late';
+            await ref.set(record(status));
+          } else {
+            rethrow;
+          }
+        }
         if (status == 'late' && Db.ruleOn(s, 'late_checkin')) {
           await Db.raiseAlert(type: 'late_checkin', description: '${me.name} checked in late at ${fmtTime(DateTime.now())}.', severity: 'medium', uid: me.uid, workerName: me.name, dedupId: 'late_${me.uid}_$today');
         }

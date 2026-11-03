@@ -30,14 +30,11 @@ class AppUser {
   String get category => (raw['category'] ?? '') as String;
   String? get supervisorId => raw['supervisorId'] as String?;
   String? get boundaryId => raw['boundaryId'] as String?;
-  String? get photo => raw['photo'] as String?;
   bool get synthetic => raw['synthetic'] == true;
   bool get hasLogin => raw['hasLogin'] != false;
-  List<double>? get faceEmbedding {
-    final f = raw['faceEmbedding'];
-    if (f is List && f.isNotEmpty) return f.map((e) => asDouble(e)).toList();
-    return null;
-  }
+  /// Only a flag lives on the profile. The biometric template itself is in
+  /// `face_templates/{uid}`, readable solely by its owner.
+  bool get faceEnrolled => raw['faceEnrolled'] == true;
 
   bool get isAdmin => role == Roles.admin;
   bool get isStaff => role == Roles.admin || role == Roles.supervisor;

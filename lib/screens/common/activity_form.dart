@@ -1,5 +1,5 @@
-import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
@@ -10,12 +10,13 @@ import '../../core/geo.dart';
 import '../../core/theme.dart';
 import '../../core/ui.dart';
 import '../../services/db.dart';
+import '../../services/evidence_storage.dart';
 import '../../services/location_service.dart';
 import '../../services/models.dart';
-import 'task_detail_screen.dart';
 
 /// Field activity / visit submission with GPS stamp and image evidence.
-/// Images are compressed on-device (max 900 px, JPEG) and stored with the record.
+/// Images are compressed on-device (max 1280 px JPEG, < 1.5 MB) and uploaded
+/// to Cloud Storage; the Firestore record stores only the object paths.
 class ActivityForm extends StatefulWidget {
   final AppUser me;
   final Doc task;
@@ -30,7 +31,8 @@ class _ActivityFormState extends State<ActivityForm> {
   final _measure = TextEditingController();
   String _visitType = 'Inspection';
   bool _markDone = true;
-  final List<String> _images = [];
+  final List<Uint8List> _images = [];
+  bool _storageEnabled = false;
   Position? _pos;
   GeoCheck? _geo;
   String? _locErr;
@@ -49,6 +51,7 @@ class _ActivityFormState extends State<ActivityForm> {
       final s = await Db.getSettings();
       if (!mounted) return;
       setState(() {
+        _storageEnabled = s['evidenceStorageEnabled'] == true;
         _pos = p;
         _geo = checkLocation(LatLng(p.latitude, p.longitude), p.accuracy, b?.points, asDoubleSafe(s['maxGpsAccuracy']));
         _locErr = null;
@@ -79,16 +82,16 @@ class _ActivityFormState extends State<ActivityForm> {
       var im = img.decodeImage(bytes);
       if (im == null) throw 'Unsupported image';
       im = img.bakeOrientation(im);
-      if (im.width > 900 || im.height > 900) {
-        im = im.width >= im.height ? img.copyResize(im, width: 900) : img.copyResize(im, height: 900);
+      if (im.width > 1280 || im.height > 1280) {
+        im = im.width >= im.height ? img.copyResize(im, width: 1280) : img.copyResize(im, height: 1280);
       }
-      var q = 65;
+      var q = 80;
       var out = img.encodeJpg(im, quality: q);
-      while (out.length > 220 * 1024 && q > 30) {
+      while (out.length > EvidenceStorage.maxBytes && q > 40) {
         q -= 10;
         out = img.encodeJpg(im, quality: q);
       }
-      setState(() => _images.add(base64Encode(out)));
+      setState(() => _images.add(out));
     } catch (e) {
       if (mounted) showSnack(context, 'Image processing failed: $e', error: true);
     } finally {
@@ -100,7 +103,16 @@ class _ActivityFormState extends State<ActivityForm> {
     if (!_form.currentState!.validate()) return;
     setState(() => _busy = true);
     try {
-      await Db.col('activities').add({
+      final ref = Db.col('activities').doc(); // ID generated first so Storage paths can reference it
+      final paths = <String>[];
+      for (int i = 0; i < _images.length; i++) {
+        try {
+          paths.add(await EvidenceStorage.upload(widget.me.uid, ref.id, i, _images[i]));
+        } catch (e) {
+          throw 'Photo upload failed: ${EvidenceStorage.errorText(e)}';
+        }
+      }
+      await ref.set({
         'taskId': widget.task['id'],
         'taskTitle': widget.task['title'],
         'uid': widget.me.uid,
@@ -112,16 +124,16 @@ class _ActivityFormState extends State<ActivityForm> {
         'lng': _pos?.longitude,
         'accuracy': _pos?.accuracy,
         'geoStatus': _geo?.status ?? 'unavailable',
-        'images': _images,
+        'images': paths, // Cloud Storage object paths only
         'reviewStatus': 'pending',
         'synthetic': false,
-        'createdAt': Timestamp.now(),
+        'createdAt': FieldValue.serverTimestamp(),
       });
       await Db.col('tasks').doc(widget.task['id']).update({
         'status': _markDone ? 'submitted' : 'in_progress',
-        'updatedAt': Timestamp.now(),
+        'updatedAt': FieldValue.serverTimestamp(),
       });
-      await Db.audit('activity_submitted', 'tasks/${widget.task['id']}', {'images': _images.length});
+      await Db.audit('activity_submitted', 'tasks/${widget.task['id']}', {'images': paths.length});
       if (!mounted) return;
       showSnack(context, 'Activity submitted for supervisor review.', success: true);
       Navigator.pop(context);
@@ -174,9 +186,18 @@ class _ActivityFormState extends State<ActivityForm> {
             decoration: const InputDecoration(labelText: 'Measurement / quantity (optional)', hintText: 'e.g. 120 m road, 15 saplings'),
           ),
           const SectionTitle('Image evidence'),
+          if (!_storageEnabled)
+            const Card(
+              child: ListTile(
+                leading: Icon(Icons.cloud_off_outlined, color: AppColors.warning),
+                title: Text('Photo evidence is disabled'),
+                subtitle: Text('It needs Cloud Storage for Firebase (Blaze plan). An administrator can enable it in Settings once storage is set up. Text and GPS details are still recorded.'),
+              ),
+            )
+          else
           Wrap(spacing: 10, runSpacing: 10, children: [
             ..._images.asMap().entries.map((e) => Stack(children: [
-                  evidenceImage(e.value),
+                  ClipRRect(borderRadius: BorderRadius.circular(10), child: Image.memory(e.value, width: 90, height: 90, fit: BoxFit.cover)),
                   Positioned(
                     right: 0,
                     top: 0,

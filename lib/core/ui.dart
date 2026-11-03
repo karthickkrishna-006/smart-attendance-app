@@ -226,6 +226,7 @@ Color statusColor(String? s) {
     case 'inactive':
     case 'suspended':
       return AppColors.danger;
+    case 'pending_approval':
     case 'assigned':
     case 'low':
       return AppColors.info;

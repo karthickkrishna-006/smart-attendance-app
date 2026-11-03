@@ -53,7 +53,7 @@ class ProfileScreen extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.all(20),
             child: Column(children: [
-              AvatarCircle(name: me.name, photo: me.photo, radius: 42),
+              AvatarCircle(name: me.name, radius: 42),
               const SizedBox(height: 12),
               Text(me.name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
               Text(me.email, style: const TextStyle(color: AppColors.muted)),
@@ -73,13 +73,13 @@ class ProfileScreen extends StatelessWidget {
               InfoRow(Icons.category_outlined, 'Category', me.category.isEmpty ? '—' : me.category),
               InfoRow(Icons.login, 'Sign-in method', fb?.providerData.map((p) => p.providerId == 'google.com' ? 'Google' : 'Email/Password').join(', ') ?? '—'),
               InfoRow(Icons.verified_outlined, 'Email verified', fb?.emailVerified == true ? 'Yes' : 'No'),
-              InfoRow(Icons.face, 'Face enrolled', me.faceEmbedding == null ? 'No' : 'Yes · ${fmtDate(me.raw['faceEnrolledAt'])}',
-                  color: me.faceEmbedding == null ? AppColors.warning : AppColors.success),
+              InfoRow(Icons.face, 'Face enrolled', !me.faceEnrolled ? 'No' : 'Yes · ${fmtDate(me.raw['faceEnrolledAt'])}',
+                  color: !me.faceEnrolled ? AppColors.warning : AppColors.success),
             ]),
           ),
         ),
         const SizedBox(height: 12),
-        if (me.faceEmbedding == null)
+        if (!me.faceEnrolled)
           OutlinedButton.icon(
             onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => FaceEnrollScreen(target: me))),
             icon: const Icon(Icons.face_retouching_natural),

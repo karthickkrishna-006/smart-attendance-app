@@ -66,7 +66,7 @@ class _WorkersScreenState extends State<WorkersScreen> {
                     ),
                   ),
                 const VerticalDivider(),
-                for (final s in ['all', 'active', 'inactive', 'suspended'])
+                for (final s in ['all', 'pending_approval', 'active', 'inactive', 'suspended'])
                   Padding(
                     padding: const EdgeInsets.only(right: 6),
                     child: ChoiceChip(label: Text(s == 'all' ? 'Any status' : titleCase(s)), selected: _status == s, onSelected: (_) => setState(() => _status = s)),
@@ -92,7 +92,7 @@ class _WorkersScreenState extends State<WorkersScreen> {
                           child: Card(
                             child: ListTile(
                               onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => WorkerDetailScreen(uid: u['id'], me: widget.me))),
-                              leading: AvatarCircle(name: u['name'] ?? '', photo: u['photo']),
+                              leading: AvatarCircle(name: u['name'] ?? ''),
                               title: Row(children: [
                                 Flexible(child: Text(u['name'] ?? '', style: const TextStyle(fontWeight: FontWeight.w700), overflow: TextOverflow.ellipsis)),
                                 if (u['synthetic'] == true) ...[const SizedBox(width: 6), const DemoBadge()],

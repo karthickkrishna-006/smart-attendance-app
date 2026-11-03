@@ -46,7 +46,7 @@ class _WorkerEditScreenState extends State<WorkerEditScreen> {
         'status': _status,
         'boundaryId': _boundary,
         'supervisorId': _supervisor,
-        'updatedAt': Timestamp.now(),
+        'updatedAt': FieldValue.serverTimestamp(),
       };
       if (widget.me.isAdmin) data['role'] = _role;
       if (widget.existing == null) {
@@ -56,7 +56,7 @@ class _WorkerEditScreenState extends State<WorkerEditScreen> {
           'email': '',
           'hasLogin': false,
           'synthetic': false,
-          'createdAt': Timestamp.now(),
+          'createdAt': FieldValue.serverTimestamp(),
         });
         await Db.audit('worker_created', 'users/${r.id}', {'employeeId': emp});
       } else {
@@ -122,7 +122,9 @@ class _WorkerEditScreenState extends State<WorkerEditScreen> {
               DropdownButtonFormField<String>(
                 value: _status,
                 decoration: const InputDecoration(labelText: 'Account / employment status'),
-                items: const ['active', 'inactive', 'suspended'].map((s) => DropdownMenuItem(value: s, child: Text(s[0].toUpperCase() + s.substring(1)))).toList(),
+                items: const ['pending_approval', 'active', 'inactive', 'suspended']
+                    .map((s) => DropdownMenuItem(value: s, child: Text(s == 'pending_approval' ? 'Pending approval' : s[0].toUpperCase() + s.substring(1))))
+                    .toList(),
                 onChanged: self ? null : (v) => setState(() => _status = v!),
               ),
               const SizedBox(height: 12),

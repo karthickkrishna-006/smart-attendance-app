@@ -1,0 +1,30 @@
+rules_version = '2';
+
+// Cloud Storage for Firebase – evidence images.
+// Requires the Blaze plan (see docs/STORAGE.md). Object layout:
+//   evidence/{uid}/{activityId}/{index}.jpg
+service firebase.storage {
+  match /b/{bucket}/o {
+    function profile() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data;
+    }
+    function active() { return request.auth != null && profile().status == 'active'; }
+    function canViewAll() { return active() && profile().role in ['admin', 'supervisor', 'auditor']; }
+
+    match /evidence/{userId}/{activityId}/{fileName} {
+      allow read: if (active() && request.auth.uid == userId) || canViewAll();
+      // Owner-only upload, JPEG only, < 1.5 MB, write-once (no overwrite/delete).
+      allow create: if active()
+        && request.auth.uid == userId
+        && fileName.matches('[0-2]\\.jpg')
+        && request.resource.size <= 1536000
+        && request.resource.contentType == 'image/jpeg';
+      allow update, delete: if false;
+    }
+
+    // Biometric photos are never uploaded; everything else is denied.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

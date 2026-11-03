@@ -115,6 +115,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final openAlerts = alerts.where((a) => a['status'] == 'open').length;
     final critical = alerts.where((a) => a['status'] == 'open' && (a['severity'] == 'critical' || a['severity'] == 'high')).length;
     final resolved = alerts.where((a) => a['status'] == 'resolved').length;
+    final pendingApproval = d[0].where((u) => u['status'] == 'pending_approval').length;
     final synthetic = d[0].any((u) => u['synthetic'] == true) || boundaries.any((b) => b.synthetic);
 
     final blocks = boundaries.map((b) => b.block).where((e) => e.isNotEmpty).toSet().toList()..sort();
@@ -140,6 +141,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
           const Padding(
             padding: EdgeInsets.only(top: 8),
             child: Row(children: [DemoBadge(), SizedBox(width: 8), Expanded(child: Text('Dashboard includes synthetic demo records.', style: TextStyle(fontSize: 12, color: AppColors.muted)))]),
+          ),
+        if (pendingApproval > 0 && widget.me.isStaff)
+          Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: Card(
+              color: AppColors.warning.withOpacity(0.08),
+              child: ListTile(
+                leading: const Icon(Icons.how_to_reg, color: AppColors.warning),
+                title: Text('$pendingApproval account(s) awaiting approval'),
+                subtitle: const Text('Workers tab → filter "Pending approval" → Edit → set status Active'),
+              ),
+            ),
           ),
         const SizedBox(height: 10),
         Row(children: [

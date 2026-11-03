@@ -136,6 +136,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ]),
               ),
+              const SectionTitle('Evidence storage'),
+              Card(
+                child: SwitchListTile(
+                  secondary: const Icon(Icons.cloud_upload_outlined),
+                  title: const Text('Enable photo evidence uploads'),
+                  subtitle: const Text('Requires Cloud Storage for Firebase (Blaze plan) and published storage.rules. See docs/STORAGE.md.'),
+                  value: s['evidenceStorageEnabled'] == true,
+                  onChanged: (v) => setState(() => s['evidenceStorageEnabled'] = v),
+                ),
+              ),
               const SectionTitle('Alert rules'),
               Card(
                 child: Column(

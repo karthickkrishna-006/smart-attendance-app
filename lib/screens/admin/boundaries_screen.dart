@@ -166,11 +166,11 @@ class _BoundaryEditorState extends State<BoundaryEditor> {
       'source': _synthetic ? 'Synthetic – drawn in app for demonstration. NOT official GIS data.' : _source.text.trim(),
       'synthetic': _synthetic,
       'points': Boundary.encode(_pts),
-      'updatedAt': Timestamp.now(),
+      'updatedAt': FieldValue.serverTimestamp(),
     };
     try {
       if (widget.existing == null) {
-        final r = await Db.col('boundaries').add({...data, 'createdAt': Timestamp.now()});
+        final r = await Db.col('boundaries').add({...data, 'createdAt': FieldValue.serverTimestamp()});
         await Db.audit('boundary_created', 'boundaries/${r.id}');
       } else {
         await Db.col('boundaries').doc(widget.existing!.id).update(data);
@@ -377,7 +377,7 @@ class _GeoJsonImportScreenState extends State<GeoJsonImportScreen> {
           'source': _official ? _source.text.trim() : 'Imported without official source – treated as SYNTHETIC.',
           'synthetic': !_official,
           'points': Boundary.encode(f['points'] as List<LatLng>),
-          'createdAt': Timestamp.now(),
+          'createdAt': FieldValue.serverTimestamp(),
         });
       }
       await Db.audit('geojson_import', 'boundaries', {'count': _parsed!.length, 'official': _official});

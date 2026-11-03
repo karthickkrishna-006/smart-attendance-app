@@ -1,5 +1,5 @@
+import 'dart:io';
 import 'dart:math' as math;
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../core/theme.dart';
@@ -10,8 +10,8 @@ import '../../services/models.dart';
 
 /// Reference face enrolment. Two captures are taken; they must match each
 /// other (consistency check), then the averaged embedding is stored as the
-/// worker's reference. Only the embedding vector and a small thumbnail are
-/// stored – never the full photo.
+/// worker's biometric template in `face_templates/{uid}` (owner-readable only).
+/// No photo or thumbnail is ever stored – previews exist only in memory.
 class FaceEnrollScreen extends StatefulWidget {
   final AppUser target;
   const FaceEnrollScreen({super.key, required this.target});
@@ -44,6 +44,9 @@ class _FaceEnrollScreenState extends State<FaceEnrollScreen> {
     if (x == null) return;
     setState(() => _busy = true);
     final c = await FaceService.process(x.path);
+    try {
+      await File(x.path).delete(); // the selfie itself is never kept
+    } catch (_) {}
     setState(() => _busy = false);
     if (!c.ok) {
       if (mounted) showSnack(context, c.message, error: true);
@@ -71,14 +74,7 @@ class _FaceEnrollScreenState extends State<FaceEnrollScreen> {
     final norm = math.sqrt(avg.fold<double>(0, (s, e) => s + e * e));
     final emb = avg.map((e) => norm == 0 ? e : e / norm).toList();
     try {
-      await Db.col('users').doc(widget.target.uid).update({
-        'faceEmbedding': emb,
-        'photo': _caps.last.thumbnail,
-        'faceEnrolledAt': Timestamp.now(),
-        'faceModel': FaceService.modelName,
-        'faceConsent': true,
-        'faceConsentAt': Timestamp.now(),
-      });
+      await FaceTemplates.enrol(uid: widget.target.uid, embedding: emb, enrolledBy: Db.uid ?? '');
       await Db.audit('face_enrolled', 'users/${widget.target.uid}', {'samples': _caps.length});
       if (!mounted) return;
       showSnack(context, 'Face enrolled successfully.', success: true);

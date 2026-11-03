@@ -99,8 +99,8 @@ class _TaskFormScreenState extends State<TaskFormScreen> {
         'createdBy': widget.me.uid,
         'createdByName': widget.me.name,
         'synthetic': false,
-        'createdAt': Timestamp.now(),
-        'updatedAt': Timestamp.now(),
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
       });
       await Db.audit('task_created', 'tasks/${r.id}', {'assignedTo': _worker});
       if (mounted) {

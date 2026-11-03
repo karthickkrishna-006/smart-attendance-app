@@ -30,7 +30,6 @@ class DemoSeed {
   /// [center] is normally the admin's current GPS position so that the GIS
   /// validation can actually be demonstrated where the phone is.
   static Future<String> seed(LatLng center) async {
-    final fs = Db.fs;
     final rnd = math.Random();
     final now = DateTime.now();
 

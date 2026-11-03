@@ -94,7 +94,7 @@ class LiveTracker {
           'distanceToEdge': g.distanceToEdge.isFinite ? g.distanceToEdge : null,
           'boundaryId': user.boundaryId,
           'onDuty': true,
-          'updatedAt': Timestamp.now(),
+          'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
       } catch (_) {}
       final today = dayKey(DateTime.now());
@@ -127,7 +127,7 @@ class LiveTracker {
     _sub = null;
     if (markOffDuty && _uid != null) {
       try {
-        await Db.col('locations').doc(_uid).set({'onDuty': false, 'updatedAt': Timestamp.now()}, SetOptions(merge: true));
+        await Db.col('locations').doc(_uid).set({'onDuty': false, 'updatedAt': FieldValue.serverTimestamp()}, SetOptions(merge: true));
       } catch (_) {}
     }
     _uid = null;

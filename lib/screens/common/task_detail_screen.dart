@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../../core/fmt.dart';
@@ -17,7 +16,7 @@ class TaskDetailScreen extends StatelessWidget {
 
   Future<void> _setStatus(BuildContext context, Doc t, String s) async {
     try {
-      await Db.col('tasks').doc(taskId).update({'status': s, 'updatedAt': Timestamp.now()});
+      await Db.col('tasks').doc(taskId).update({'status': s, 'updatedAt': FieldValue.serverTimestamp()});
       await Db.audit('task_status', 'tasks/$taskId', {'to': s});
       if (context.mounted) showSnack(context, 'Task marked ${titleCase(s)}.', success: true);
     } catch (e) {
@@ -104,16 +103,5 @@ class TaskDetailScreen extends StatelessWidget {
         );
       },
     );
-  }
-}
-
-Widget evidenceImage(String b64, {double size = 90}) {
-  try {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(10),
-      child: Image.memory(base64Decode(b64), width: size, height: size, fit: BoxFit.cover, gaplessPlayback: true),
-    );
-  } catch (_) {
-    return SizedBox(width: size, height: size, child: const Icon(Icons.broken_image));
   }
 }

@@ -1,33 +1,39 @@
-# Project status: what is done, what is tested, what is not
+# Project status: what is verified and what is not
 
-**The app has NOT been compiled or run yet.** The development environment had no access to the Flutter SDK, Gradle or Android repositories, and no GitHub connection was possible. All code was written and statically checked (every import resolves, brackets and structure balance), but the Dart compiler has never processed it. Expect the first GitHub Actions build to possibly report a few compile errors that need small fixes. Don't present the app as fully functional until it has built and the device checklist (`docs/TECHNICAL.md` §5) passes on a real phone.
+**Nothing in this project has been compiled, run or emulator-tested yet.** The development environment had no access to the Flutter SDK, Gradle, Android repositories, pub.dev or the Firebase emulator, and no GitHub connection. Expect the first CI run to possibly report compile errors, analyzer warnings or rules-test failures that need small fixes. Do **not** present the app as functional until CI is green **and** the device checklist (`TECHNICAL.md` §5) passes on a real phone.
 
-## Verification status
+## Verified in the development environment
+| Item | How it was verified |
+|---|---|
+| `google-services.json`: package `in.cit.smartattendance`, OAuth client with SHA-1 `31e33e99…0fac` | File inspected |
+| Signing key fingerprints | `keytool` |
+| Face model: file, size 5,233,552 B, SHA-256 `be4bc7cf…354854`, tensors `input float32[1,112,112,3]` → `embeddings float32[1,192]` | Flatbuffer parsed directly; licence files copied from source repositories |
+| Gradle wrapper files are the official Gradle v8.10.2 files (jar SHA-256 `2db75c40…448046`) | Fetched from the `gradle/gradle` repository at tag `v8.10.2`; CI also runs `gradle/actions/wrapper-validation` |
+| Dart source: all imports resolve; brackets balance; no obviously unused imports | Static scripts (not the Dart analyzer) |
+| ZIP contains no keystore, passwords or `key.properties` | Scanned |
 
+## Not yet verified
 | Item | Status |
 |---|---|
-| Firebase project, package name, SHA-1 in `google-services.json` | ✅ Verified (file contents checked; SHA-1 matches the signing key) |
-| Signing key fingerprints | ✅ Verified with `keytool` |
-| GIS geometry (point-in-polygon, distance, area, location check) | ⚠️ Unit tests written; not yet executed |
-| Dart / Flutter compilation | ❌ Not yet compiled |
-| Android Gradle build and APK signing | ❌ Not yet run (CI workflow written to do it and to verify the signature) |
-| Google Sign-In on a device | ❌ Untested; can only be tested on a real phone with the signed APK |
-| Email/password login, registration, password reset | ❌ Untested |
-| Firestore security rules | ❌ Not yet published or tested; written for the access model described in `TECHNICAL.md` §2 |
-| Camera and ML Kit face detection | ❌ Untested on device |
-| MobileFaceNet face model | ❌ The model file is downloaded at build time from a public GitHub repository; its accuracy and threshold have not been calibrated |
-| GPS, live tracking, OpenStreetMap tiles | ❌ Untested on device |
-| Dashboard, reports, alerts, tasks, activities | ❌ Untested; all read from live Firestore (no hard-coded values) |
+| Dart compilation and `flutter analyze` (now fails on warnings) | ❌ Not run |
+| Gradle build, APK signing | ❌ Not run (CI is set up to do it and verify the signature) |
+| Firestore / Storage rules | ❌ Written and covered by 16 emulator tests in `tests/rules`, but **the tests themselves have not run yet** |
+| Google Sign-In, email login/registration/reset on a device | ❌ |
+| Admin bootstrap with your Gmail | ❌ (needs your email in the rules + device test) |
+| Camera, ML Kit detection, face matching quality | ❌ Threshold not calibrated |
+| GPS, live tracking, OSM tiles | ❌ |
+| Cloud Storage uploads | ❌ Also requires the Blaze plan |
+| Dashboard, reports, alerts, tasks, activities | ❌ |
 
-## Implemented, but limited by design (see `TECHNICAL.md` §6)
-- **Face verification:** a demonstration-grade open-source model. There's no liveness or anti-spoofing beyond an eyes-open check. A production model, threshold, consent and retention policy must be approved by the AI team.
-- **Live location tracking:** only while the app is open (foreground). Background tracking isn't implemented.
-- **Notifications:** in-app real-time banners and badges only. There are no push notifications when the app is closed, because that requires a paid Firebase plan for Cloud Functions.
-- **Evidence photos:** compressed (≤ 220 KB) and stored inside Firestore, because Firebase Storage requires the paid plan.
-- **Official data:** no official worker records, employee IDs or GIS boundaries were available. The demo generator creates **SYNTHETIC DEMO**-labelled data only. Official boundaries can be imported as GeoJSON.
-- **Attendance rules** (late time, thresholds, status logic) are defaults that need project approval.
-- **Taluk** is not modelled; the hierarchy is District → Block → Panchayat → Location, pending confirmation.
-
-## Not included
-- iOS, web and desktop builds (Android only).
-- Firestore composite indexes: the queries were designed to need none, so `firestore.indexes.json` is empty. If Firestore ever reports "requires an index", follow the link in the error message to create it.
+## Remaining limitations (by design or pending external input)
+- **Client-side verification trust:** face matching and the GPS/GIS check run on the phone. The rules enforce consistency, server time, today's IST date, the assigned boundary and immutability, but they can't prove a tampered app didn't fake the inputs. Server-side verification needs Cloud Functions (Blaze). See `SECURITY_SETUP.md`.
+- **Face model:** demonstration grade. The training-data provenance of the `.tflite` is undocumented (see `MODEL_CARD.md`). There's no liveness or anti-spoofing beyond an eyes-open check, and the threshold is uncalibrated.
+- **Photo evidence** needs the Blaze plan and is disabled by default (`STORAGE.md`).
+- **Location tracking** is foreground only, while the app is open.
+- **Notifications** are in-app real-time only; there's no push when the app is closed.
+- **Offline check-in:** Firestore queues the write, but the Submit button waits for server confirmation, so it keeps spinning until the network returns.
+- **Lateness near the cut-off** is decided by the server's IST clock; if the phone clock disagrees, the app resubmits as "late".
+- **Attendance dates** assume phones are set to Indian time (IST).
+- **Official data** (worker master list, employee ID format, GIS boundaries, Block/Taluk hierarchy) has not been provided; demo data is synthetic and labelled.
+- **Attendance business rules** are defaults pending project approval.
+- **Android only.** No iOS, web or desktop build.

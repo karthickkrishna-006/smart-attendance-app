@@ -23,6 +23,9 @@ class Db {
     'requireFace': true,
     'requireBoundary': true,
     'trackingIntervalSec': 30,
+    // Photo evidence needs Cloud Storage for Firebase, which requires the
+    // Blaze (pay-as-you-go) plan. Off by default so the app works on Spark.
+    'evidenceStorageEnabled': false,
     'rules': {
       'face_failed': true,
       'outside_boundary': true,
@@ -89,7 +92,7 @@ class Db {
         'details': details ?? {},
         'actorUid': u.uid,
         'actorEmail': u.email ?? '',
-        'createdAt': Timestamp.now(),
+        'createdAt': FieldValue.serverTimestamp(),
       });
     } catch (_) {
       // audit failures must never block the user flow
@@ -117,7 +120,7 @@ class Db {
       'taskId': taskId,
       'status': 'open',
       'synthetic': synthetic,
-      'createdAt': Timestamp.now(),
+      'createdAt': FieldValue.serverTimestamp(),
       'date': dayKey(DateTime.now()),
     };
     try {
@@ -156,7 +159,7 @@ class Db {
           'workerName': d['name'],
           'status': 'open',
           'synthetic': d['synthetic'] == true,
-          'createdAt': Timestamp.now(),
+          'createdAt': FieldValue.serverTimestamp(),
           'date': today,
         });
         created++;
@@ -181,7 +184,7 @@ class Db {
           'taskId': t.id,
           'status': 'open',
           'synthetic': d['synthetic'] == true,
-          'createdAt': Timestamp.now(),
+          'createdAt': FieldValue.serverTimestamp(),
           'date': today,
         });
         created++;

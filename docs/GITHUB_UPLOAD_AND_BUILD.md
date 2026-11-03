@@ -10,6 +10,9 @@ You don't need Flutter or Android Studio on your computer. GitHub builds the APK
 
 ---
 
+## Step 0: Set your admin email (2 minutes)
+Open `firestore.rules` in a text editor (Notepad is fine) and replace `REPLACE_WITH_ADMIN_EMAIL@gmail.com` with **your** Gmail address in lower case. Save. Details are in `docs/SECURITY_SETUP.md`.
+
 ## Step 1: Unzip the project
 Extract the ZIP. You should get a folder `smart-attendance-app/` containing `lib/`, `android/`, `.github/`, `pubspec.yaml`, `README.md` and more.
 
@@ -33,7 +36,7 @@ Extract the ZIP. You should get a folder `smart-attendance-app/` containing `lib
 1. Open your empty repository and click **uploading an existing file**.
 2. Open the unzipped folder, turn on "show hidden files" (Windows: View → Show → Hidden items; macOS: Cmd+Shift+.), select **everything inside it, including `.github`**, and drag it onto the page.
 3. Click **Commit changes**.
-4. Check that `.github/workflows/build-apk.yml` is visible in the repository. If it's missing, create it manually: **Add file → Create new file**, name it `.github/workflows/build-apk.yml`, and paste in the contents of that file from the ZIP.
+4. Check that `.github/workflows/build-apk.yml` and `android/gradlew` are visible in the repository. (Browser uploads drop the "executable" flag on `gradlew`; the workflow restores it with `chmod +x`, so that's fine.) If the workflow file is missing, create it manually: **Add file → Create new file**, name it `.github/workflows/build-apk.yml`, and paste in the contents of that file from the ZIP.
 
 ## Step 4: Add the 4 signing secrets
 GitHub signs the APK with your key. The key is stored as an encrypted secret, never as a file in the repository.
@@ -62,7 +65,9 @@ In your repository, go to **Settings → Secrets and variables → Actions → N
 ## Step 5: Run the build
 1. Open the **Actions** tab. If asked, click **I understand my workflows, go ahead and enable them**.
 2. Choose **Build Android APK**, then **Run workflow**, then **Run workflow**. Every later push to `main` also builds automatically.
-3. Wait about 10–15 minutes. A green tick means success.
+3. Wait about 10–15 minutes. Two jobs run: **rules-test** (security rules) and **build** (APK). Both need a green tick.
+
+> **Making `gradlew` executable in git (GitHub Desktop / command line):** the ZIP stores it as executable and `.gitattributes` keeps Unix line endings. If you commit from Windows, run this once in the project folder: `git update-index --chmod=+x android/gradlew`, then commit. The CI also runs `chmod +x`, so the build works either way.
 
 ## Step 6: Download and install the APK
 1. Open the repository's **Releases** (right-hand side of the main page) and download `SmartAttendance-v1.0.N.apk`.
@@ -70,7 +75,7 @@ In your repository, go to **Settings → Secrets and variables → Actions → N
 2. Send the APK to your phone, open it and allow "Install unknown apps" when Android asks.
 
 ## Step 7: Publish the Firestore security rules (once)
-In Firebase console, go to **Firestore Database → Rules**, replace the text with the contents of `firestore.rules`, and click **Publish**. Without this, the app shows "Permission denied".
+Only after the **rules-test** job is green: in Firebase console, go to **Firestore Database → Rules**, paste your edited `firestore.rules` and click **Publish**. Then sign in **first** with your admin Gmail. Other users will see "Awaiting approval" until you activate them. Full procedure: `docs/SECURITY_SETUP.md`.
 
 ---
 
@@ -82,5 +87,8 @@ Click the failed run, then the red step, and read the last lines.
 | `KEYSTORE_BASE64 is missing` | Add the secrets (Step 4). Names must match exactly. |
 | `Keystore SHA-1 does not match` | You uploaded a different key file or a wrong base64. Redo Step 4 with `smartattend-release.jks`. |
 | `keystore password was incorrect` | Fix `KEYSTORE_PASSWORD` / `KEY_PASSWORD`. |
-| `Face model download failed` | Temporary network issue; click **Re-run jobs**. |
-| Dart/Gradle compile errors | This project has **not yet been compiled** (see `docs/STATUS.md`). Copy the error lines and ask for a fix; the fix is usually a small code change. |
+| `mobilefacenet.tflite: FAILED` (checksum) | The model file was corrupted during upload. Re-upload `assets/models/mobilefacenet.tflite` from the ZIP. |
+| `Gradle wrapper validation failed` | Re-upload `android/gradle/wrapper/gradle-wrapper.jar` from the ZIP; don't edit it. |
+| `rules-test` job fails | A security rule doesn't behave as the test expects. Copy the failing test name and error and ask for a fix. Don't publish those rules until it passes. |
+| `flutter analyze` reports warnings | Analysis warnings now fail the build on purpose. Copy them and ask for a fix. |
+| Dart/Gradle compile errors | This project has **not yet been compiled** (see `docs/STATUS.md`). Copy the error lines and ask for a fix. |

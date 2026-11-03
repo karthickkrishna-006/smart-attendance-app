@@ -85,11 +85,17 @@ class _Blocked extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.all(28),
             child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-              const Icon(Icons.lock_person_outlined, size: 64, color: AppColors.danger),
+              Icon(me.status == 'pending_approval' ? Icons.hourglass_top : Icons.lock_person_outlined, size: 64, color: me.status == 'pending_approval' ? AppColors.warning : AppColors.danger),
               const SizedBox(height: 16),
-              Text('Account ${me.status}', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
+              Text(me.status == 'pending_approval' ? 'Awaiting approval' : 'Account ${me.status}',
+                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
               const SizedBox(height: 10),
-              const Text('Your account is not active. Please contact your administrator.', textAlign: TextAlign.center),
+              Text(
+                me.status == 'pending_approval'
+                    ? 'Your account (${me.email}) was created. An administrator or supervisor must approve it and assign your role before you can use the app. This screen updates automatically.'
+                    : 'Your account is not active. Please contact your administrator.',
+                textAlign: TextAlign.center,
+              ),
               const SizedBox(height: 24),
               FilledButton.icon(onPressed: AuthService.signOut, icon: const Icon(Icons.logout), label: const Text('Sign out')),
             ]),

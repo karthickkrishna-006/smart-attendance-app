@@ -68,7 +68,7 @@ class _AttendanceDetailState extends State<AttendanceDetail> {
         'status': status,
         'reviewNote': note.text.trim(),
         'reviewedBy': widget.reviewer?.name,
-        'reviewedAt': Timestamp.now(),
+        'reviewedAt': FieldValue.serverTimestamp(),
       });
       await Db.audit('attendance_review', 'attendance/${widget.a['id']}', {'from': widget.a['status'], 'to': status});
       if (mounted) {

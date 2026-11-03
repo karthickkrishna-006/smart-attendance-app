@@ -1,106 +1,270 @@
 rules_version = '2';
 
 // Smart Attendance – Cloud Firestore security rules
-// Roles live in users/{uid}.role : admin | supervisor | worker | auditor
+//
+// BEFORE PUBLISHING: replace the e-mail in bootstrapAdminEmail() with the
+// single Google/Gmail address that is authorised to become the first Admin.
+// See docs/SECURITY_SETUP.md.
+//
+// Roles (users/{uid}.role): admin | supervisor | worker | auditor
+// Status (users/{uid}.status): pending_approval | active | inactive | suspended
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function signedIn() { return request.auth != null; }
-    function meDoc() { return get(/databases/$(database)/documents/users/$(request.auth.uid)); }
-    function hasProfile() { return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)); }
-    function role() { return meDoc().data.role; }
-    function active() { return hasProfile() && meDoc().data.get('status', 'active') == 'active'; }
-    function isAdmin() { return active() && role() == 'admin'; }
-    function isStaff() { return active() && role() in ['admin', 'supervisor']; }
-    function canViewAll() { return active() && role() in ['admin', 'supervisor', 'auditor']; }
-    function isSelf(uid) { return signedIn() && request.auth.uid == uid; }
-    function changed() { return request.resource.data.diff(resource.data).affectedKeys(); }
+    // ===================== CONFIGURE ======================================
+    function bootstrapAdminEmail() { return 'REPLACE_WITH_ADMIN_EMAIL@gmail.com'; }
+    // =====================================================================
 
-    // First account in a fresh project becomes Administrator.
-    match /meta/bootstrap {
-      allow read: if signedIn();
-      allow create: if signedIn()
-        && request.resource.data.adminUid == request.auth.uid
-        && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    // ---------- identity helpers ----------
+    function signedIn() { return request.auth != null; }
+    function uid() { return request.auth.uid; }
+    function userPath(u) { return /databases/$(database)/documents/users/$(u); }
+    function hasProfile() { return signedIn() && exists(userPath(uid())); }
+    function me() { return get(userPath(uid())).data; }
+    function active() { return hasProfile() && me().status == 'active'; }
+    function isAdmin() { return active() && me().role == 'admin'; }
+    function isStaff() { return active() && me().role in ['admin', 'supervisor']; }
+    function canViewAll() { return active() && me().role in ['admin', 'supervisor', 'auditor']; }
+    function isWorker() { return active() && me().role == 'worker'; }
+
+    // ---------- write helpers ----------
+    function incoming() { return request.resource.data; }
+    function changed() { return request.resource.data.diff(resource.data).affectedKeys(); }
+    function isServerTime(v) { return v == request.time; }
+
+    // ---------- bootstrap ----------
+    function bootstrapPath() { return /databases/$(database)/documents/meta/bootstrap; }
+    function authorisedBootstrapUser() {
+      return signedIn()
+        && request.auth.token.email == bootstrapAdminEmail()
+        && request.auth.token.email_verified == true;
     }
 
-    match /users/{uid} {
+    // ---------- settings (business rules) ----------
+    function settingsPath() { return /databases/$(database)/documents/settings/config; }
+    function cfg(key, dflt) { return exists(settingsPath()) ? get(settingsPath()).data.get(key, dflt) : dflt; }
+
+    // India Standard Time (UTC+05:30) – attendance dates are IST calendar days.
+    function istNow() { return request.time + duration.value(330, 'm'); }
+    function istMinutes() { return istNow().hours() * 60 + istNow().minutes(); }
+    function isTodayIst(dateStr) {
+      let p = dateStr.split('-');
+      return p.size() == 3
+        && int(p[0]) == istNow().year() && int(p[1]) == istNow().month() && int(p[2]) == istNow().day();
+    }
+    function lateAfterMinutes() {
+      let p = string(cfg('lateAfter', '09:30')).split(':');
+      return int(p[0]) * 60 + int(p[1]);
+    }
+
+    // A worker's self-submitted outcome must be consistent with the
+    // verification results recorded in the same document.
+    function validOutcome(d) {
+      let face = d.checkIn.get('faceStatus', '');
+      let geo = d.checkIn.get('geoStatus', '');
+      let faceOk = face == 'verified' || (face == 'not_required' && cfg('requireFace', true) == false);
+      let geoOk = geo == 'inside' || cfg('requireBoundary', true) == false;
+      return d.status in ['pending_verification', 'rejected']
+        || (d.status == 'late' && faceOk && geoOk)
+        || (d.status == 'present' && faceOk && geoOk && istMinutes() <= lateAfterMinutes());
+    }
+
+    // =====================================================================
+    match /meta/bootstrap {
       allow read: if signedIn();
+      // Write-once. Only the authorised, verified e-mail; must atomically
+      // make its own profile admin in the same batch.
+      allow create: if authorisedBootstrapUser()
+        && !exists(bootstrapPath())
+        && incoming().adminUid == uid()
+        && getAfter(userPath(uid())).data.role == 'admin';
+      allow update, delete: if false;
+    }
+
+    // ---------- user profiles (NO biometric data here) ----------
+    match /users/{userId} {
+      allow read: if (signedIn() && userId == uid()) || canViewAll();
+
       allow create: if
-        // self-registration as worker
-        (isSelf(uid) && request.resource.data.role == 'worker' && request.resource.data.status == 'active')
-        // bootstrap admin (only while no bootstrap document exists)
-        || (isSelf(uid) && request.resource.data.role == 'admin'
-            && !exists(/databases/$(database)/documents/meta/bootstrap)
-            && existsAfter(/databases/$(database)/documents/meta/bootstrap))
-        // staff creating profile-only worker records
+        // Self sign-up: always a pending worker with no privileged fields.
+        (signedIn() && userId == uid()
+          && incoming().keys().hasOnly(['name', 'email', 'phone', 'role', 'status', 'employeeId', 'category',
+                                        'hasLogin', 'synthetic', 'faceEnrolled', 'createdAt'])
+          && incoming().role == 'worker'
+          && incoming().status == 'pending_approval'
+          && incoming().email == request.auth.token.email
+          && incoming().employeeId == ''
+          && incoming().synthetic == false
+          && incoming().faceEnrolled == false
+          && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 80)
+        // Admin creates any profile; supervisors create worker records only.
         || isAdmin()
-        || (isStaff() && request.resource.data.role == 'worker');
-      allow update: if isAdmin()
-        // supervisors may edit workers but never roles
-        || (isStaff() && resource.data.role == 'worker' && !changed().hasAny(['role']))
-        // users may edit their own basic profile and enrol face once
-        || (isSelf(uid)
-            && !changed().hasAny(['role', 'status', 'employeeId', 'supervisorId', 'boundaryId', 'synthetic', 'hasLogin'])
-            && (!changed().hasAny(['faceEmbedding']) || resource.data.get('faceEmbedding', null) == null));
+        || (isStaff() && incoming().role == 'worker');
+
+      allow update: if
+        // Admins manage everyone, but cannot change their own role/status (no self-lockout).
+        (isAdmin() && !(userId == uid() && changed().hasAny(['role', 'status'])))
+        // Supervisors manage workers but can never grant a role.
+        || (isStaff() && resource.data.role == 'worker' && incoming().role == 'worker'
+            && !changed().hasAny(['faceEnrolled']))
+        // Bootstrap: the authorised verified e-mail promotes ITSELF once,
+        // atomically with creating meta/bootstrap.
+        || (signedIn() && userId == uid() && authorisedBootstrapUser()
+            && !exists(bootstrapPath()) && existsAfter(bootstrapPath())
+            && changed().hasOnly(['role', 'status'])
+            && incoming().role == 'admin' && incoming().status == 'active')
+        // Users may edit their own contact details only.
+        || (signedIn() && userId == uid()
+            && changed().hasOnly(['name', 'phone', 'updatedAt'])
+            && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 80)
+        // Face-enrolled flag, only together with an actual template write.
+        || ((active() && userId == uid() || isStaff() && resource.data.role == 'worker')
+            && changed().hasOnly(['faceEnrolled', 'faceEnrolledAt', 'faceConsent', 'faceConsentAt'])
+            && incoming().faceEnrolled == true
+            && existsAfter(/databases/$(database)/documents/face_templates/$(userId)));
+
+      allow delete: if isAdmin() && userId != uid();
+    }
+
+    // ---------- biometric templates (owner-read only) ----------
+    match /face_templates/{userId} {
+      // Only the person the template belongs to can read it. No list queries.
+      allow get: if active() && userId == uid();
+      allow list: if false;
+      // Enrol once: by the worker, or by staff with the worker present.
+      allow create: if (
+          (active() && userId == uid())
+          || (isStaff() && get(userPath(userId)).data.role == 'worker'))
+        && incoming().keys().hasOnly(['embedding', 'dims', 'model', 'consent', 'enrolledBy', 'enrolledAt'])
+        && incoming().embedding is list
+        && incoming().embedding.size() == 192
+        && incoming().dims == 192
+        && incoming().consent == true
+        && isServerTime(incoming().enrolledAt);
+      allow update: if false;            // re-enrolment = admin delete + new enrolment
       allow delete: if isAdmin();
     }
 
+    // ---------- reference data ----------
     match /boundaries/{id} {
-      allow read: if signedIn();
+      allow read: if active();
       allow write: if isStaff();
     }
 
     match /settings/{id} {
-      allow read: if signedIn();
+      allow read: if active();
       allow write: if isAdmin();
     }
 
+    // ---------- attendance ----------
     match /attendance/{id} {
-      allow read: if canViewAll() || (signedIn() && (resource == null || resource.data.uid == request.auth.uid));
-      allow create: if isStaff() || (active() && request.resource.data.uid == request.auth.uid && id == request.auth.uid + '_' + request.resource.data.date);
-      // workers may only add check-out to their own record
+      // get: a worker may probe today's (possibly non-existent) own record.
+      allow get: if canViewAll() || (signedIn() && (resource == null || resource.data.uid == uid()));
+      allow list: if canViewAll() || (signedIn() && resource.data.uid == uid());
+
+      allow create: if isStaff()
+        || (isWorker()
+            && incoming().uid == uid()
+            && id == uid() + '_' + incoming().date
+            && isTodayIst(incoming().date)
+            && incoming().keys().hasOnly(['uid', 'name', 'employeeId', 'date', 'status', 'boundaryId',
+                                          'checkIn', 'synthetic', 'createdAt'])
+            && incoming().synthetic == false
+            && incoming().boundaryId == me().get('boundaryId', null)
+            && isServerTime(incoming().createdAt)
+            && isServerTime(incoming().checkIn.time)
+            && validOutcome(incoming()));
+
+      // Workers can only add a check-out once; status/check-in are immutable for them.
       allow update: if isStaff()
-        || (active() && resource.data.uid == request.auth.uid && changed().hasOnly(['checkOut', 'updatedAt']));
+        || (isWorker()
+            && resource.data.uid == uid()
+            && !('checkOut' in resource.data)
+            && changed().hasOnly(['checkOut', 'updatedAt'])
+            && isServerTime(incoming().checkOut.time)
+            && isServerTime(incoming().updatedAt));
+
       allow delete: if isAdmin();
     }
 
+    // ---------- verification audit log (append-only) ----------
     match /verifications/{id} {
-      allow read: if canViewAll() || (signedIn() && (resource == null || resource.data.uid == request.auth.uid));
-      allow create: if active() && request.resource.data.uid == request.auth.uid;
+      allow read: if canViewAll() || (signedIn() && resource.data.uid == uid());
+      allow create: if active()
+        && incoming().uid == uid()
+        && incoming().type in ['face', 'location']
+        && !('embedding' in incoming())
+        && isServerTime(incoming().createdAt);
+      allow update: if false;
       allow delete: if isAdmin();
     }
 
-    match /locations/{uid} {
-      allow read: if canViewAll() || isSelf(uid);
-      allow write: if (active() && isSelf(uid)) || isStaff();
+    // ---------- live positions ----------
+    match /locations/{userId} {
+      allow read: if canViewAll() || (signedIn() && userId == uid());
+      allow create, update: if isStaff()
+        || (active() && userId == uid()
+            && isServerTime(incoming().updatedAt)
+            && incoming().get('synthetic', false) == false);
+      allow delete: if isStaff();
     }
 
+    // ---------- tasks ----------
     match /tasks/{id} {
-      allow read: if signedIn();
+      allow get: if canViewAll() || (signedIn() && (resource == null || resource.data.assignedTo == uid()));
+      allow list: if canViewAll() || (signedIn() && resource.data.assignedTo == uid());
       allow create, delete: if isStaff();
       allow update: if isStaff()
-        || (active() && resource.data.assignedTo == request.auth.uid
+        || (isWorker()
+            && resource.data.assignedTo == uid()
             && changed().hasOnly(['status', 'updatedAt'])
-            && request.resource.data.status in ['in_progress', 'submitted']);
+            && (incoming().status == resource.data.status
+                || (resource.data.status == 'assigned' && incoming().status == 'in_progress')
+                || (resource.data.status in ['assigned', 'in_progress'] && incoming().status == 'submitted')));
     }
 
+    // ---------- field activities ----------
     match /activities/{id} {
-      allow read: if canViewAll() || (signedIn() && (resource == null || resource.data.uid == request.auth.uid));
-      allow create: if (active() && request.resource.data.uid == request.auth.uid) || isStaff();
-      allow update, delete: if isStaff();
+      allow read: if canViewAll() || (signedIn() && resource.data.uid == uid());
+      allow create: if isStaff()
+        || (isWorker()
+            && incoming().uid == uid()
+            && incoming().reviewStatus == 'pending'
+            && incoming().synthetic == false
+            && !('reviewNote' in incoming()) && !('reviewedBy' in incoming())
+            && isServerTime(incoming().createdAt)
+            && incoming().images is list && incoming().images.size() <= 3
+            && get(/databases/$(database)/documents/tasks/$(incoming().taskId)).data.assignedTo == uid());
+      allow update: if isStaff() && changed().hasOnly(['reviewStatus', 'reviewNote', 'reviewedBy', 'reviewedAt']);
+      allow delete: if isAdmin();
     }
 
+    // ---------- alerts ----------
     match /alerts/{id} {
-      allow read: if canViewAll() || (signedIn() && (resource == null || resource.data.uid == request.auth.uid));
-      allow create: if active();
-      allow update, delete: if isStaff();
+      allow get: if canViewAll() || (signedIn() && (resource == null || resource.data.uid == uid()));
+      allow list: if canViewAll() || (signedIn() && resource.data.uid == uid());
+      // Workers can only raise system alerts about themselves; never resolve them.
+      allow create: if isStaff()
+        || (active()
+            && incoming().uid == uid()
+            && incoming().status == 'open'
+            && incoming().synthetic == false
+            && incoming().type in ['face_failed', 'outside_boundary', 'mock_location', 'late_checkin', 'low_accuracy']
+            && isServerTime(incoming().createdAt));
+      allow update: if isStaff() && changed().hasOnly(['status', 'resolution', 'resolvedBy', 'resolvedAt']);
+      allow delete: if isAdmin();
     }
 
+    // ---------- audit trail (append-only) ----------
     match /audit_logs/{id} {
       allow read: if canViewAll();
-      allow create: if signedIn() && request.resource.data.actorUid == request.auth.uid;
+      allow create: if signedIn() && incoming().actorUid == uid() && isServerTime(incoming().createdAt);
       allow update, delete: if false;
+    }
+
+    // Deny everything else.
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

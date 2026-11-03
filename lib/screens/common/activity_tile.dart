@@ -5,7 +5,7 @@ import '../../core/theme.dart';
 import '../../core/ui.dart';
 import '../../services/db.dart';
 import '../../services/models.dart';
-import 'task_detail_screen.dart';
+import '../../services/evidence_storage.dart';
 
 class ActivityTile extends StatelessWidget {
   final Doc a;
@@ -32,12 +32,12 @@ class ActivityTile extends StatelessWidget {
         'reviewStatus': status,
         'reviewNote': note.text.trim(),
         'reviewedBy': me.name,
-        'reviewedAt': Timestamp.now(),
+        'reviewedAt': FieldValue.serverTimestamp(),
       });
       if (a['taskId'] != null) {
         await Db.col('tasks').doc(a['taskId']).update({
           'status': status == 'approved' ? 'completed' : 'in_progress',
-          'updatedAt': Timestamp.now(),
+          'updatedAt': FieldValue.serverTimestamp(),
         });
       }
       await Db.audit('activity_review', 'activities/${a['id']}', {'status': status});
@@ -92,9 +92,9 @@ class ActivityTile extends StatelessWidget {
                   itemBuilder: (_, i) => GestureDetector(
                     onTap: () => showDialog(
                       context: context,
-                      builder: (_) => Dialog(child: InteractiveViewer(child: evidenceImage(imgs[i], size: 360))),
+                      builder: (_) => Dialog(child: InteractiveViewer(child: StorageImage(imgs[i], size: 360))),
                     ),
-                    child: evidenceImage(imgs[i]),
+                    child: StorageImage(imgs[i]),
                   ),
                 ),
               ),

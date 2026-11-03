@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' show Rect;
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:image/image.dart' as img;
 import 'package:tflite_flutter/tflite_flutter.dart';
@@ -11,7 +12,7 @@ class FaceCapture {
   final bool ok;
   final String message;
   final List<double>? embedding;
-  final String? thumbnail; // base64 JPEG of the cropped face (96 px)
+  final String? thumbnail; // base64 JPEG preview, kept in memory for on-screen display only – never stored
   final double? quality;
   FaceCapture.fail(this.message)
       : ok = false,
@@ -57,7 +58,8 @@ class FaceVerification {
 /// Nothing is reported as verified unless this pipeline actually ran.
 class FaceService {
   static const modelAsset = 'assets/models/mobilefacenet.tflite';
-  static const modelName = 'MobileFaceNet (TFLite) + ML Kit detector';
+  static const modelName = 'MobileFaceNet TFLite (sha256 be4bc7cf…) + ML Kit detector';
+  static const embeddingSize = 192;
   static Interpreter? _interp;
   static String? loadError;
   static List<int> _inShape = const [];
@@ -70,6 +72,15 @@ class FaceService {
       _interp = await Interpreter.fromAsset(modelAsset, options: opts);
       _inShape = _interp!.getInputTensor(0).shape;
       _outShape = _interp!.getOutputTensor(0).shape;
+      // Pinned model spec (third_party/mobilefacenet/MODEL_CARD.md):
+      // input float32 [1,112,112,3], output float32 [1,192].
+      if (_inShape.length != 4 || _inShape[0] != 1 || _inShape[1] != 112 || _inShape[2] != 112 || _inShape[3] != 3 ||
+          _outShape.length != 2 || _outShape[0] != 1 || _outShape[1] != embeddingSize) {
+        loadError = 'Unexpected face model tensors $_inShape → $_outShape (expected [1,112,112,3] → [1,$embeddingSize]).';
+        _interp!.close();
+        _interp = null;
+        return false;
+      }
       loadError = null;
       return true;
     } catch (e) {
@@ -111,9 +122,7 @@ class FaceService {
       image = img.bakeOrientation(image);
 
       final crop = _cropFace(image, f.boundingBox);
-      final h = _inShape.length == 4 ? _inShape[1] : 112;
-      final w = _inShape.length == 4 ? _inShape[2] : 112;
-      final resized = img.copyResize(crop, width: w, height: h, interpolation: img.Interpolation.cubic);
+      final resized = img.copyResize(crop, width: 112, height: 112, interpolation: img.Interpolation.cubic);
       final emb = _embed(resized);
       final thumb = base64Encode(img.encodeJpg(img.copyResize(crop, width: 96, height: 96), quality: 70));
       final quality = (f.boundingBox.width / image.width).clamp(0.0, 1.0);
@@ -137,19 +146,17 @@ class FaceService {
   }
 
   static List<double> _embed(img.Image face) {
-    final h = face.height, w = face.width;
-    final batch = _inShape.isNotEmpty ? _inShape[0] : 1;
-    final one = List.generate(
-      h,
-      (y) => List.generate(w, (x) {
-        final p = face.getPixel(x, y);
-        return [(p.r - 127.5) / 128.0, (p.g - 127.5) / 128.0, (p.b - 127.5) / 128.0];
-      }),
-    );
-    final input = List.generate(batch, (_) => one);
-    final outRows = _outShape.isNotEmpty ? _outShape[0] : 1;
-    final outLen = _outShape.length > 1 ? _outShape[1] : 192;
-    final output = List.generate(outRows, (_) => List<double>.filled(outLen, 0.0));
+    // Pre-processing identical to the source project: (p - 128) / 128.
+    final input = [
+      List.generate(
+        112,
+        (y) => List.generate(112, (x) {
+          final p = face.getPixel(x, y);
+          return [(p.r - 128) / 128.0, (p.g - 128) / 128.0, (p.b - 128) / 128.0];
+        }),
+      ),
+    ];
+    final output = [List<double>.filled(embeddingSize, 0.0)];
     _interp!.run(input, output);
     return _l2(output[0].map((e) => e.toDouble()).toList());
   }
@@ -203,5 +210,52 @@ class FaceService {
           : 'Face did not match the enrolled reference (${(sim * 100).toStringAsFixed(1)}% < ${(threshold * 100).toStringAsFixed(0)}%).',
       thumbnail: cap.thumbnail,
     );
+  }
+}
+
+
+/// Biometric template storage. Templates live in `face_templates/{uid}`,
+/// separate from the user profile. Security rules let ONLY the owner read
+/// their template; admins may delete it but cannot read it.
+class FaceTemplates {
+  static DocumentReference<Map<String, dynamic>> _ref(String uid) =>
+      FirebaseFirestore.instance.collection('face_templates').doc(uid);
+
+  /// Reads the signed-in user's own template (null if not enrolled).
+  static Future<List<double>?> readOwn(String uid) async {
+    final d = await _ref(uid).get();
+    final e = d.data()?['embedding'];
+    if (e is! List || e.length != FaceService.embeddingSize) return null;
+    return e.map((v) => (v as num).toDouble()).toList();
+  }
+
+  /// Writes the template and flags the profile in one atomic batch.
+  static Future<void> enrol({required String uid, required List<double> embedding, required String enrolledBy}) async {
+    final fs = FirebaseFirestore.instance;
+    final b = fs.batch();
+    b.set(_ref(uid), {
+      'embedding': embedding,
+      'dims': FaceService.embeddingSize,
+      'model': FaceService.modelName,
+      'consent': true,
+      'enrolledBy': enrolledBy,
+      'enrolledAt': FieldValue.serverTimestamp(),
+    });
+    b.update(fs.collection('users').doc(uid), {
+      'faceEnrolled': true,
+      'faceEnrolledAt': FieldValue.serverTimestamp(),
+      'faceConsent': true,
+      'faceConsentAt': FieldValue.serverTimestamp(),
+    });
+    await b.commit();
+  }
+
+  /// Admin only: permanently deletes the biometric template.
+  static Future<void> delete(String uid) async {
+    final fs = FirebaseFirestore.instance;
+    final b = fs.batch();
+    b.delete(_ref(uid));
+    b.update(fs.collection('users').doc(uid), {'faceEnrolled': false, 'faceEnrolledAt': FieldValue.delete()});
+    await b.commit();
   }
 }

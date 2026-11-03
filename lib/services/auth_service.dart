@@ -50,38 +50,53 @@ class AuthService {
     await _auth.signOut();
   }
 
-  /// Creates the Firestore profile on first login. The very first account in
-  /// a fresh project becomes Administrator (bootstrap); all later accounts
-  /// start as Field Workers until an administrator changes their role.
+  /// Creates the Firestore profile on first login.
+  ///
+  /// Security model (enforced by firestore.rules, not by this code):
+  ///  * Every new account is a Field Worker with status `pending_approval`
+  ///    until an administrator or supervisor activates it.
+  ///  * Only the single e-mail address configured as `bootstrapAdminEmail()`
+  ///    in firestore.rules, with a VERIFIED e-mail, can claim the initial
+  ///    Administrator role – and only once (meta/bootstrap is write-once).
+  /// The client simply attempts the bootstrap; the rules reject it for
+  /// everyone else, and the account stays a pending worker.
   static Future<void> ensureProfile(User u, {String? name, String? phone}) async {
     final ref = Db.col('users').doc(u.uid);
     final existing = await ref.get();
-    if (existing.exists) return;
-    final base = {
-      'name': (name != null && name.isNotEmpty) ? name : (u.displayName ?? u.email?.split('@').first ?? 'User'),
-      'email': u.email ?? '',
-      'phone': phone ?? u.phoneNumber ?? '',
-      'status': 'active',
-      'employeeId': '',
-      'category': '',
-      'hasLogin': true,
-      'synthetic': false,
-      'createdAt': Timestamp.now(),
-    };
-    final boot = await Db.col('meta').doc('bootstrap').get();
-    if (!boot.exists) {
-      try {
-        final b = Db.fs.batch();
-        b.set(Db.col('meta').doc('bootstrap'), {'adminUid': u.uid, 'createdAt': Timestamp.now()});
-        b.set(ref, {...base, 'role': Roles.admin});
-        await b.commit();
-        await Db.audit('bootstrap_admin', 'users/${u.uid}');
-        return;
-      } catch (_) {
-        // someone else bootstrapped first – fall through to worker
-      }
+    if (!existing.exists) {
+      await ref.set({
+        'name': (name != null && name.isNotEmpty) ? name : (u.displayName ?? u.email?.split('@').first ?? 'User'),
+        'email': u.email ?? '',
+        'phone': phone ?? u.phoneNumber ?? '',
+        'role': Roles.worker,
+        'status': 'pending_approval',
+        'employeeId': '',
+        'category': '',
+        'hasLogin': true,
+        'synthetic': false,
+        'faceEnrolled': false,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
     }
-    await ref.set({...base, 'role': Roles.worker});
+    await _tryBootstrapAdmin(u);
+  }
+
+  static Future<void> _tryBootstrapAdmin(User u) async {
+    try {
+      await u.reload();
+      final fresh = FirebaseAuth.instance.currentUser ?? u;
+      if (!fresh.emailVerified) return; // rules also require email_verified == true
+      await fresh.getIdToken(true); // refresh token so the email_verified claim is current
+      final boot = await Db.col('meta').doc('bootstrap').get();
+      if (boot.exists) return;
+      final b = Db.fs.batch();
+      b.update(Db.col('users').doc(u.uid), {'role': Roles.admin, 'status': 'active'});
+      b.set(Db.col('meta').doc('bootstrap'), {'adminUid': u.uid, 'createdAt': FieldValue.serverTimestamp()});
+      await b.commit();
+      await Db.audit('bootstrap_admin', 'users/${u.uid}');
+    } catch (_) {
+      // Not the authorised bootstrap e-mail (or already bootstrapped): stays a worker.
+    }
   }
 
   static String errorText(Object e) {
