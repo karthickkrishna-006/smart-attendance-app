@@ -1,0 +1,6 @@
+# TEMPLATE ONLY – copy to android/key.properties for LOCAL builds. Never commit the real file.
+# In GitHub Actions this file is generated automatically from repository secrets.
+storeFile=release.jks
+storePassword=YOUR_KEYSTORE_PASSWORD
+keyAlias=smartattend
+keyPassword=YOUR_KEY_PASSWORD
