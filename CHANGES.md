@@ -60,3 +60,12 @@ Nothing in this revision has been compiled or run (see `docs/STATUS.md`).
 
 ## Documentation
 - **Updated:** `README.md`, `docs/STATUS.md`, `docs/TECHNICAL.md`, `docs/GITHUB_UPLOAD_AND_BUILD.md` (Step 0: set the admin email; new troubleshooting rows).
+
+# Revision 3: rules-test setup fix
+
+- **Cause of the 6 failures:** several tests called `context.firestore()` more than once on the same `RulesTestContext`. Each call re-runs `connectFirestoreEmulator()`, which throws "Firestore has already been started and its settings can no longer be changed". The affected tests were admin bootstrap, self sign-up, profile privacy, supervisors/admins, face-template enrolment, and pending accounts / pending storage.
+- **Fix** (`tests/rules/rules.test.mjs` only): a new `as(uid, email, verified)` helper creates one context per test user and lazily creates its Firestore and Storage handles exactly once (`??=`), so emulator settings are applied before any operation and never again.
+- **Isolation:** `beforeEach` now also calls `env.clearStorage()` (Firestore was already cleared).
+- **No rule changes:** `firestore.rules` and `storage.rules` are unchanged, and all 16 assertions are unchanged.
+- **Output:** `tests/rules/package.json` uses `--test-reporter=spec`, which lists every test name and result in the CI log.
+- **Not yet run:** these tests have NOT been executed by the developer, because the Firebase emulator and npm registry were not reachable from the development environment. The GitHub Actions `rules-test` job is the first execution.

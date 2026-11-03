@@ -323,24 +323,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ),
         const SectionTitle('Recent alerts'),
-        ...(() {
-          final recent = alerts.where((a) => a['status'] == 'open').toList()
-            ..sort((a, b) => (toDate(b['createdAt']) ?? DateTime(0)).compareTo(toDate(a['createdAt']) ?? DateTime(0)));
-          if (recent.isEmpty) return [const Card(child: ListTile(leading: Icon(Icons.check_circle, color: AppColors.success), title: Text('No open alerts')))];
-          return recent.take(5).map((a) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Card(
-                  child: ListTile(
-                    leading: Icon(alertIcons[a['type']] ?? Icons.warning_amber, color: statusColor(a['severity'])),
-                    title: Text(a['description'] ?? '', maxLines: 2, overflow: TextOverflow.ellipsis),
-                    subtitle: Text('${titleCase(a['severity'] ?? '')} · ${ago(a['createdAt'])}'),
-                  ),
-                ),
-              ));
-        })(),
+        ..._recentAlerts(alerts),
         const SizedBox(height: 20),
       ]),
     );
+  }
+
+  /// Up to 5 most recent open alerts, or a single "No open alerts" card.
+  /// Explicit List<Widget> return type so the spread in build() is typed
+  /// (an inline closure with mixed List/Iterable branches infers `Object`).
+  List<Widget> _recentAlerts(List<Doc> alerts) {
+    final recent = alerts.where((a) => a['status'] == 'open').toList()
+      ..sort((a, b) => (toDate(b['createdAt']) ?? DateTime(0)).compareTo(toDate(a['createdAt']) ?? DateTime(0)));
+    if (recent.isEmpty) {
+      return const <Widget>[
+        Card(child: ListTile(leading: Icon(Icons.check_circle, color: AppColors.success), title: Text('No open alerts'))),
+      ];
+    }
+    return recent
+        .take(5)
+        .map<Widget>((a) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Card(
+                child: ListTile(
+                  leading: Icon(alertIcons[a['type']] ?? Icons.warning_amber, color: statusColor(a['severity'])),
+                  title: Text(a['description'] ?? '', maxLines: 2, overflow: TextOverflow.ellipsis),
+                  subtitle: Text('${titleCase(a['severity'] ?? '')} · ${ago(a['createdAt'])}'),
+                ),
+              ),
+            ))
+        .toList();
   }
 
   Widget _drop(String label, String value, List<String> items, ValueChanged<String> on) => DropdownButtonFormField<String>(
