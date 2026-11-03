@@ -1,0 +1,44 @@
+name: smartattendance
+description: AI-Enabled Smart Attendance and Field Activity Monitoring System for rural development field workers (Chengalpattu District).
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.5.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # Firebase
+  firebase_core: ^3.8.1
+  firebase_auth: ^5.3.4
+  cloud_firestore: ^5.6.0
+  google_sign_in: ^6.2.2
+
+  # Maps / GPS / GIS
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
+  geolocator: ^13.0.2
+
+  # Camera + AI face verification
+  image_picker: ^1.1.2
+  google_mlkit_face_detection: ^0.12.0
+  tflite_flutter: ^0.11.0
+  image: ^4.3.0
+
+  # UI
+  fl_chart: ^0.69.2
+  intl: ^0.19.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/models/
+    - assets/images/

@@ -1,0 +1,29 @@
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+*.iml
+.idea/
+.vscode/
+pubspec.lock.bak
+
+# Android
+android/.gradle/
+android/local.properties
+android/key.properties
+android/app/release.jks
+*.jks
+*.keystore
+android/captures/
+android/gradlew
+android/gradlew.bat
+android/gradle/wrapper/gradle-wrapper.jar
+android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
+
+# AI model is downloaded at build time
+assets/models/*.tflite
+
+# OS
+.DS_Store

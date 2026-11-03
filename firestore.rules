@@ -1,0 +1,106 @@
+rules_version = '2';
+
+// Smart Attendance – Cloud Firestore security rules
+// Roles live in users/{uid}.role : admin | supervisor | worker | auditor
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function meDoc() { return get(/databases/$(database)/documents/users/$(request.auth.uid)); }
+    function hasProfile() { return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)); }
+    function role() { return meDoc().data.role; }
+    function active() { return hasProfile() && meDoc().data.get('status', 'active') == 'active'; }
+    function isAdmin() { return active() && role() == 'admin'; }
+    function isStaff() { return active() && role() in ['admin', 'supervisor']; }
+    function canViewAll() { return active() && role() in ['admin', 'supervisor', 'auditor']; }
+    function isSelf(uid) { return signedIn() && request.auth.uid == uid; }
+    function changed() { return request.resource.data.diff(resource.data).affectedKeys(); }
+
+    // First account in a fresh project becomes Administrator.
+    match /meta/bootstrap {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.adminUid == request.auth.uid
+        && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn();
+      allow create: if
+        // self-registration as worker
+        (isSelf(uid) && request.resource.data.role == 'worker' && request.resource.data.status == 'active')
+        // bootstrap admin (only while no bootstrap document exists)
+        || (isSelf(uid) && request.resource.data.role == 'admin'
+            && !exists(/databases/$(database)/documents/meta/bootstrap)
+            && existsAfter(/databases/$(database)/documents/meta/bootstrap))
+        // staff creating profile-only worker records
+        || isAdmin()
+        || (isStaff() && request.resource.data.role == 'worker');
+      allow update: if isAdmin()
+        // supervisors may edit workers but never roles
+        || (isStaff() && resource.data.role == 'worker' && !changed().hasAny(['role']))
+        // users may edit their own basic profile and enrol face once
+        || (isSelf(uid)
+            && !changed().hasAny(['role', 'status', 'employeeId', 'supervisorId', 'boundaryId', 'synthetic', 'hasLogin'])
+            && (!changed().hasAny(['faceEmbedding']) || resource.data.get('faceEmbedding', null) == null));
+      allow delete: if isAdmin();
+    }
+
+    match /boundaries/{id} {
+      allow read: if signedIn();
+      allow write: if isStaff();
+    }
+
+    match /settings/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /attendance/{id} {
+      allow read: if canViewAll() || (signedIn() && (resource == null || resource.data.uid == request.auth.uid));
+      allow create: if isStaff() || (active() && request.resource.data.uid == request.auth.uid && id == request.auth.uid + '_' + request.resource.data.date);
+      // workers may only add check-out to their own record
+      allow update: if isStaff()
+        || (active() && resource.data.uid == request.auth.uid && changed().hasOnly(['checkOut', 'updatedAt']));
+      allow delete: if isAdmin();
+    }
+
+    match /verifications/{id} {
+      allow read: if canViewAll() || (signedIn() && (resource == null || resource.data.uid == request.auth.uid));
+      allow create: if active() && request.resource.data.uid == request.auth.uid;
+      allow delete: if isAdmin();
+    }
+
+    match /locations/{uid} {
+      allow read: if canViewAll() || isSelf(uid);
+      allow write: if (active() && isSelf(uid)) || isStaff();
+    }
+
+    match /tasks/{id} {
+      allow read: if signedIn();
+      allow create, delete: if isStaff();
+      allow update: if isStaff()
+        || (active() && resource.data.assignedTo == request.auth.uid
+            && changed().hasOnly(['status', 'updatedAt'])
+            && request.resource.data.status in ['in_progress', 'submitted']);
+    }
+
+    match /activities/{id} {
+      allow read: if canViewAll() || (signedIn() && (resource == null || resource.data.uid == request.auth.uid));
+      allow create: if (active() && request.resource.data.uid == request.auth.uid) || isStaff();
+      allow update, delete: if isStaff();
+    }
+
+    match /alerts/{id} {
+      allow read: if canViewAll() || (signedIn() && (resource == null || resource.data.uid == request.auth.uid));
+      allow create: if active();
+      allow update, delete: if isStaff();
+    }
+
+    match /audit_logs/{id} {
+      allow read: if canViewAll();
+      allow create: if signedIn() && request.resource.data.actorUid == request.auth.uid;
+      allow update, delete: if false;
+    }
+  }
+}

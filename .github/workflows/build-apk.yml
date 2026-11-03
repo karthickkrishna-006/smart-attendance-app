@@ -1,0 +1,111 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.27.4'
+          channel: stable
+          cache: true
+
+      - name: Download AI face model (MobileFaceNet TFLite)
+        run: |
+          set -e
+          mkdir -p assets/models
+          for url in \
+            "https://github.com/MCarlomagno/FaceRecognitionAuth/raw/master/assets/mobilefacenet.tflite" \
+            "https://github.com/estebanuri/face_recognition/raw/master/android/face-recognition/app/src/main/assets/mobile_face_net.tflite" \
+            "https://github.com/syaringan357/Android-MobileFaceNet-MTCNN-FaceAntiSpoofing/raw/master/app/src/main/assets/MobileFaceNet.tflite"; do
+            echo "Trying $url"
+            if curl -fsSL --retry 3 -o assets/models/mobilefacenet.tflite "$url"; then
+              size=$(stat -c%s assets/models/mobilefacenet.tflite)
+              echo "Downloaded $size bytes"
+              if [ "$size" -gt 1000000 ]; then echo "MODEL_URL=$url" >> $GITHUB_ENV; break; fi
+            fi
+            rm -f assets/models/mobilefacenet.tflite
+          done
+          test -f assets/models/mobilefacenet.tflite || (echo "::error::Face model download failed" && exit 1)
+          sha256sum assets/models/mobilefacenet.tflite
+
+      - name: Configure release signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::GitHub secret KEYSTORE_BASE64 is missing. Google Sign-In requires the registered release key. See README → 'GitHub secrets'."
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > android/app/release.jks
+          cat > android/key.properties <<EOF
+          storeFile=release.jks
+          storePassword=$KEYSTORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          EOF
+          sed -i 's/^ *//' android/key.properties
+          echo "Signing certificate fingerprints (must match Firebase):"
+          keytool -list -v -keystore android/app/release.jks -alias "$KEY_ALIAS" -storepass "$KEYSTORE_PASSWORD" | grep -E "SHA1|SHA256"
+          keytool -list -v -keystore android/app/release.jks -alias "$KEY_ALIAS" -storepass "$KEYSTORE_PASSWORD" | grep -q "31:E3:3E:99:F4:5A:F0:3C:F1:25:BE:20:D4:68:9A:C5:D3:66:0F:AC" \
+            || (echo "::error::Keystore SHA-1 does not match the SHA-1 registered in Firebase" && exit 1)
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Static analysis
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings || true
+
+      - name: Unit tests
+        run: flutter test
+
+      - name: Build release APK
+        run: flutter build apk --release
+
+      - name: Verify APK signature
+        run: |
+          APK=build/app/outputs/flutter-apk/app-release.apk
+          ls -la $APK
+          BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          $BT/apksigner verify --print-certs $APK | tee signer.txt
+          grep -qi "31e33e99f45af03cf125be20d4689ac5d3660fac" signer.txt || (echo "::error::APK not signed with the Firebase-registered key" && exit 1)
+          mkdir -p dist
+          cp $APK dist/SmartAttendance-v1.0.${{ github.run_number }}.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SmartAttendance-APK
+          path: dist/*.apk
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Smart Attendance build ${{ github.run_number }}
+          body: |
+            Installable Android APK (release-signed with the Firebase-registered key).
+            Face model: ${{ env.MODEL_URL }}
+          files: dist/*.apk
