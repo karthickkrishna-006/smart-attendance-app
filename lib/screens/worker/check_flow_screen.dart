@@ -139,7 +139,6 @@ class _CheckFlowScreenState extends State<CheckFlowScreen> {
 
   String _computeStatus() {
     final s = _settings!;
-    final geoOk = _geo?.status == 'inside';
     final geoUnknown = _geo == null || _geo!.status == 'no_boundary' || _geo!.status == 'low_accuracy';
     final faceOk = _face?.verified == true;
     final faceUnknown = _face == null || _face!.status == 'unavailable';
