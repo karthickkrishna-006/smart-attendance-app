@@ -93,7 +93,7 @@ class AuthService {
   /// Logs only non-secret context needed to diagnose profile access failures.
   /// The UID is included because it is also the profile document ID.
   static void logProfileFailure(User u, String operation, Object error) {
-    final projectId = Firebase.app().options.projectId ?? 'unknown';
+    final projectId = Firebase.app().options.projectId;
     final errorCode = error is FirebaseException ? error.code : error.runtimeType.toString();
     debugPrint(
       '[profile-diagnostic] operation=$operation projectId=$projectId uid=${u.uid} '
