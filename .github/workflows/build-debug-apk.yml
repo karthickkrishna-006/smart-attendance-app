@@ -55,12 +55,97 @@ jobs:
       - name: Test
         run: flutter test
 
+      - name: Validate and stage CI debug signing key
+        shell: bash
+        env:
+          CI_DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
+          CI_DEBUG_KEYSTORE_PASSWORD: ${{ secrets.DEBUG_KEYSTORE_PASSWORD }}
+          CI_DEBUG_KEY_ALIAS: ${{ secrets.DEBUG_KEY_ALIAS }}
+          CI_DEBUG_KEY_PASSWORD: ${{ secrets.DEBUG_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$CI_DEBUG_KEYSTORE_BASE64" ]]; then
+            echo "::error::Required GitHub Actions secret DEBUG_KEYSTORE_BASE64 is missing."
+            exit 1
+          fi
+          if [[ -z "$CI_DEBUG_KEYSTORE_PASSWORD" ]]; then
+            echo "::error::Required GitHub Actions secret DEBUG_KEYSTORE_PASSWORD is missing."
+            exit 1
+          fi
+          if [[ -z "$CI_DEBUG_KEY_ALIAS" ]]; then
+            echo "::error::Required GitHub Actions secret DEBUG_KEY_ALIAS is missing."
+            exit 1
+          fi
+          if [[ -z "$CI_DEBUG_KEY_PASSWORD" ]]; then
+            echo "::error::Required GitHub Actions secret DEBUG_KEY_PASSWORD is missing."
+            exit 1
+          fi
+
+          KEYSTORE_PATH="$RUNNER_TEMP/smart-attendance-ci-debug.jks"
+          printf '%s' "$CI_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          chmod 600 "$KEYSTORE_PATH"
+          if ! keytool -list -keystore "$KEYSTORE_PATH" -alias "$CI_DEBUG_KEY_ALIAS" \
+            -storepass "$CI_DEBUG_KEYSTORE_PASSWORD" >/dev/null 2>&1; then
+            echo "::error::The configured CI debug keystore, alias, or keystore password is invalid."
+            exit 1
+          fi
+
       - name: Build debug APK
+        env:
+          CI_DEBUG_KEYSTORE_PATH: ${{ runner.temp }}/smart-attendance-ci-debug.jks
+          CI_DEBUG_KEYSTORE_PASSWORD: ${{ secrets.DEBUG_KEYSTORE_PASSWORD }}
+          CI_DEBUG_KEY_ALIAS: ${{ secrets.DEBUG_KEY_ALIAS }}
+          CI_DEBUG_KEY_PASSWORD: ${{ secrets.DEBUG_KEY_PASSWORD }}
         run: flutter build apk --debug
+
+      - name: Verify APK signature and artifact identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="build/app/outputs/flutter-apk/app-debug.apk"
+          ARTIFACT_APK="dist/SmartAttendance-Debug-APK.apk"
+          mkdir -p dist
+          test -f "$APK"
+          cp "$APK" "$ARTIFACT_APK"
+
+          SOURCE_SHA256="$(sha256sum "$APK" | awk '{print $1}')"
+          ARTIFACT_SHA256="$(sha256sum "$ARTIFACT_APK" | awk '{print $1}')"
+          if [[ "$SOURCE_SHA256" != "$ARTIFACT_SHA256" ]]; then
+            echo "::error::The APK staged for upload does not match the built APK."
+            exit 1
+          fi
+
+          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          APKSIGNER="$BUILD_TOOLS/apksigner"
+          if [[ ! -x "$APKSIGNER" ]]; then
+            echo "::error::Android apksigner was not found on the runner."
+            exit 1
+          fi
+          SIGNATURE_OUTPUT="$RUNNER_TEMP/smart-attendance-apksigner.txt"
+          "$APKSIGNER" verify --print-certs "$ARTIFACT_APK" > "$SIGNATURE_OUTPUT"
+          SHA1="$(grep -m1 'certificate SHA-1 digest:' "$SIGNATURE_OUTPUT" | awk '{print $NF}')"
+          SHA256="$(grep -m1 'certificate SHA-256 digest:' "$SIGNATURE_OUTPUT" | awk '{print $NF}')"
+          if [[ -z "$SHA1" || -z "$SHA256" ]]; then
+            echo "::error::Could not extract both APK certificate fingerprints."
+            exit 1
+          fi
+          echo "APK certificate SHA-1: $SHA1"
+          echo "APK certificate SHA-256: $SHA256"
+
+          VERIFIED_SHA256="$(sha256sum "$ARTIFACT_APK" | awk '{print $1}')"
+          if [[ "$VERIFIED_SHA256" != "$ARTIFACT_SHA256" ]]; then
+            echo "::error::The uploaded APK changed after its signing fingerprints were verified."
+            exit 1
+          fi
+          echo "Verified APK file SHA-256: $VERIFIED_SHA256"
+
+      - name: Remove CI debug signing material
+        if: always()
+        run: rm -f "$RUNNER_TEMP/smart-attendance-ci-debug.jks" "$RUNNER_TEMP/smart-attendance-apksigner.txt"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: SmartAttendance-Debug-APK
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          path: dist/SmartAttendance-Debug-APK.apk
           retention-days: 30

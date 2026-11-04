@@ -13,6 +13,21 @@ if (keystorePropertiesFile.exists()) {
     keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
 }
 
+// CI debug signing is intentionally isolated from the release signing config.
+// The workflow supplies these values through environment variables and stores
+// the keystore outside the checked-out repository.
+def ciDebugSigning = [
+    keystorePath: System.getenv("CI_DEBUG_KEYSTORE_PATH"),
+    keystorePassword: System.getenv("CI_DEBUG_KEYSTORE_PASSWORD"),
+    keyAlias: System.getenv("CI_DEBUG_KEY_ALIAS"),
+    keyPassword: System.getenv("CI_DEBUG_KEY_PASSWORD"),
+]
+def ciDebugSigningRequested = ciDebugSigning.values().any { it != null && !it.isBlank() }
+def ciDebugSigningConfigured = ciDebugSigning.values().every { it != null && !it.isBlank() }
+if (ciDebugSigningRequested && !ciDebugSigningConfigured) {
+    throw new GradleException("CI debug signing was partially configured; provide all CI debug signing values.")
+}
+
 android {
     namespace = "in.cit.smartattendance"
     compileSdk = 35
@@ -37,6 +52,14 @@ android {
     }
 
     signingConfigs {
+        ciDebug {
+            if (ciDebugSigningConfigured) {
+                storeFile = file(ciDebugSigning.keystorePath)
+                storePassword = ciDebugSigning.keystorePassword
+                keyAlias = ciDebugSigning.keyAlias
+                keyPassword = ciDebugSigning.keyPassword
+            }
+        }
         release {
             if (keystorePropertiesFile.exists()) {
                 keyAlias = keystoreProperties["keyAlias"]
@@ -48,6 +71,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            if (ciDebugSigningConfigured) {
+                signingConfig = signingConfigs.ciDebug
+            }
+        }
         release {
             signingConfig = keystorePropertiesFile.exists() ? signingConfigs.release : signingConfigs.debug
             minifyEnabled = false

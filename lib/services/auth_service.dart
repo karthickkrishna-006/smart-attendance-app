@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'db.dart';
 import 'models.dart';
@@ -62,23 +64,41 @@ class AuthService {
   /// everyone else, and the account stays a pending worker.
   static Future<void> ensureProfile(User u, {String? name, String? phone}) async {
     final ref = Db.col('users').doc(u.uid);
-    final existing = await ref.get();
-    if (!existing.exists) {
-      await ref.set({
-        'name': (name != null && name.isNotEmpty) ? name : (u.displayName ?? u.email?.split('@').first ?? 'User'),
-        'email': u.email ?? '',
-        'phone': phone ?? u.phoneNumber ?? '',
-        'role': Roles.worker,
-        'status': 'pending_approval',
-        'employeeId': '',
-        'category': '',
-        'hasLogin': true,
-        'synthetic': false,
-        'faceEnrolled': false,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
+    var operation = 'read';
+    try {
+      final existing = await ref.get();
+      if (!existing.exists) {
+        operation = 'create';
+        await ref.set({
+          'name': (name != null && name.isNotEmpty) ? name : (u.displayName ?? u.email?.split('@').first ?? 'User'),
+          'email': u.email ?? '',
+          'phone': phone ?? u.phoneNumber ?? '',
+          'role': Roles.worker,
+          'status': 'pending_approval',
+          'employeeId': '',
+          'category': '',
+          'hasLogin': true,
+          'synthetic': false,
+          'faceEnrolled': false,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      }
+    } catch (error) {
+      logProfileFailure(u, operation, error);
+      rethrow;
     }
     await _tryBootstrapAdmin(u);
+  }
+
+  /// Logs only non-secret context needed to diagnose profile access failures.
+  /// The UID is included because it is also the profile document ID.
+  static void logProfileFailure(User u, String operation, Object error) {
+    final projectId = Firebase.app().options.projectId ?? 'unknown';
+    final errorCode = error is FirebaseException ? error.code : error.runtimeType.toString();
+    debugPrint(
+      '[profile-diagnostic] operation=$operation projectId=$projectId uid=${u.uid} '
+      'documentPath=users/${u.uid} errorCode=$errorCode',
+    );
   }
 
   static Future<void> _tryBootstrapAdmin(User u) async {

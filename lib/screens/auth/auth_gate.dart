@@ -61,6 +61,7 @@ class _ProfileGateState extends State<_ProfileGate> {
           stream: Db.col('users').doc(widget.user.uid).snapshots(),
           builder: (context, s) {
             if (s.hasError) {
+              AuthService.logProfileFailure(widget.user, 'listen', s.error!);
               return Scaffold(body: ErrorView(message: friendlyError(s.error!)));
             }
             if (!s.hasData) return const Scaffold(body: LoadingView());

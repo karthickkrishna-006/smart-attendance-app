@@ -92,3 +92,44 @@ Click the failed run, then the red step, and read the last lines.
 | `rules-test` job fails | A security rule doesn't behave as the test expects. Copy the failing test name and error and ask for a fix. Don't publish those rules until it passes. |
 | `flutter analyze` reports warnings | Analysis warnings now fail the build on purpose. Copy them and ask for a fix. |
 | Dart/Gradle compile errors | This project has **not yet been compiled** (see `docs/STATUS.md`). Copy the error lines and ask for a fix. |
+
+## CI debug APK signing (separate from release signing)
+
+The **Build Debug APK** workflow signs with a dedicated, stable debug keystore. This key is separate from `smartattend-release.jks` and the four release secrets above. Do not commit the keystore or its passwords.
+
+Create one keystore on a trusted machine with Java `keytool` available (Android Studio and Flutter are not needed). Keep the generated file in a secure location and back it up securely:
+
+```text
+keytool -genkeypair -v -keystore smartattendance-ci-debug.jks -storetype JKS -keyalg RSA -keysize 2048 -validity 10000 -alias smartattendance-ci-debug
+```
+
+Set the four following repository secrets under **Settings → Secrets and variables → Actions**. Use the same keystore and values for all debug builds so the signing fingerprint stays stable:
+
+| Secret name | Value |
+|---|---|
+| `DEBUG_KEYSTORE_BASE64` | Base64 encoding of `smartattendance-ci-debug.jks` |
+| `DEBUG_KEYSTORE_PASSWORD` | Keystore password chosen during key creation |
+| `DEBUG_KEY_ALIAS` | `smartattendance-ci-debug` (or the alias chosen during key creation) |
+| `DEBUG_KEY_PASSWORD` | Password for that key alias |
+
+For PowerShell, copy the Base64 value without writing it into the repository:
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("$PWD\smartattendance-ci-debug.jks")) | Set-Clipboard
+```
+
+For macOS, encode the file and paste the output directly into the `DEBUG_KEYSTORE_BASE64` secret:
+
+```bash
+base64 -i smartattendance-ci-debug.jks | tr -d '\n'
+```
+
+For Linux:
+
+```bash
+base64 -w0 smartattendance-ci-debug.jks
+```
+
+After a successful debug build, the workflow prints only the APK certificate SHA-1 and SHA-256 fingerprints, plus the APK file SHA-256 used to verify the uploaded artifact matches the built APK. In Firebase Console, open **Project settings → General → Your apps**, select Android app `in.cit.smartattendance`, and add the CI debug APK's printed **SHA-1** under **SHA certificate fingerprints**. Keep the release certificate SHA-1 registered too. Then open **Authentication → Sign-in method**, confirm Google is enabled and a support email is configured, download the refreshed `google-services.json`, and use that file in the next build.
+
+Profile access failures also produce a `[profile-diagnostic]` log entry with the operation, Firebase project ID, authenticated UID, `users/{uid}` path, and Firebase error code. It does not log passwords, tokens, email addresses, or exception messages.
