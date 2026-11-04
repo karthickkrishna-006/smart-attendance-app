@@ -123,7 +123,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
 
   Widget _pill(String l, int n, Color c) => Container(
         padding: const EdgeInsets.symmetric(vertical: 10),
-        decoration: BoxDecoration(color: c.withOpacity(0.09), borderRadius: BorderRadius.circular(12)),
+        decoration: BoxDecoration(color: c.withValues(alpha: 0.09), borderRadius: BorderRadius.circular(12)),
         child: Column(children: [
           Text('$n', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: c)),
           Text(l, style: TextStyle(fontSize: 12, color: c)),
@@ -141,7 +141,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
           child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Container(
               padding: const EdgeInsets.all(9),
-              decoration: BoxDecoration(color: statusColor(sev).withOpacity(0.12), borderRadius: BorderRadius.circular(10)),
+              decoration: BoxDecoration(color: statusColor(sev).withValues(alpha: 0.12), borderRadius: BorderRadius.circular(10)),
               child: Icon(alertIcons[a['type']] ?? Icons.notifications_active_outlined, color: statusColor(sev)),
             ),
             const SizedBox(width: 12),

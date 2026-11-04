@@ -146,7 +146,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Padding(
             padding: const EdgeInsets.only(top: 10),
             child: Card(
-              color: AppColors.warning.withOpacity(0.08),
+              color: AppColors.warning.withValues(alpha: 0.08),
               child: ListTile(
                 leading: const Icon(Icons.how_to_reg, color: AppColors.warning),
                 title: Text('$pendingApproval account(s) awaiting approval'),
@@ -444,7 +444,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           color: AppColors.success,
           barWidth: 3,
           dotData: const FlDotData(show: true),
-          belowBarData: BarAreaData(show: true, color: AppColors.success.withOpacity(0.1)),
+          belowBarData: BarAreaData(show: true, color: AppColors.success.withValues(alpha: 0.1)),
         ),
         LineChartBarData(spots: lateSpots, isCurved: true, color: AppColors.warning, barWidth: 2, dotData: const FlDotData(show: false)),
       ],

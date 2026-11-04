@@ -326,7 +326,7 @@ class _CheckFlowScreenState extends State<CheckFlowScreen> {
                     if (b != null) PolygonLayer(polygons: [boundaryPolygon(b, highlight: true)]),
                     if (pos != null)
                       CircleLayer(circles: [
-                        CircleMarker(point: pos, radius: _pos!.accuracy, useRadiusInMeter: true, color: AppColors.info.withOpacity(0.15), borderColor: AppColors.info, borderStrokeWidth: 1),
+                        CircleMarker(point: pos, radius: _pos!.accuracy, useRadiusInMeter: true, color: AppColors.info.withValues(alpha: 0.15), borderColor: AppColors.info, borderStrokeWidth: 1),
                       ]),
                     if (pos != null) MarkerLayer(markers: [Marker(point: pos, width: 22, height: 22, child: const MyLocationDot())]),
                   ],

@@ -65,7 +65,7 @@ ThemeData buildTheme() {
     ),
     navigationBarTheme: NavigationBarThemeData(
       backgroundColor: Colors.white,
-      indicatorColor: AppColors.teal.withOpacity(0.18),
+      indicatorColor: AppColors.teal.withValues(alpha: 0.18),
       labelTextStyle: WidgetStateProperty.all(const TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
     ),
     chipTheme: const ChipThemeData(side: BorderSide.none),

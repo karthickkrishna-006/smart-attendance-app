@@ -44,7 +44,7 @@ class MoreScreen extends StatelessWidget {
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                         Container(
                           padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(color: it.$4.withOpacity(0.12), borderRadius: BorderRadius.circular(12)),
+                          decoration: BoxDecoration(color: it.$4.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(12)),
                           child: Icon(it.$1, color: it.$4),
                         ),
                         const Spacer(),

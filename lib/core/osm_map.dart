@@ -56,7 +56,7 @@ Polygon boundaryPolygon(Boundary b, {bool highlight = false}) {
   final c = b.synthetic ? AppColors.demo : AppColors.teal;
   return Polygon(
     points: b.points,
-    color: c.withOpacity(highlight ? 0.22 : 0.12),
+    color: c.withValues(alpha: highlight ? 0.22 : 0.12),
     borderColor: c,
     borderStrokeWidth: highlight ? 3 : 2,
     label: b.synthetic ? '${b.name}\n(SYNTHETIC)' : b.name,
@@ -73,7 +73,7 @@ class MyLocationDot extends StatelessWidget {
           color: color,
           shape: BoxShape.circle,
           border: Border.all(color: Colors.white, width: 3),
-          boxShadow: [BoxShadow(color: color.withOpacity(0.4), blurRadius: 8)],
+          boxShadow: [BoxShadow(color: color.withValues(alpha: 0.4), blurRadius: 8)],
         ),
       );
 }

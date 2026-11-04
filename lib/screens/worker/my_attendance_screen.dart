@@ -76,7 +76,7 @@ class _AttTile extends StatelessWidget {
           leading: Container(
             width: 48,
             padding: const EdgeInsets.symmetric(vertical: 6),
-            decoration: BoxDecoration(color: statusColor(a['status']).withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+            decoration: BoxDecoration(color: statusColor(a['status']).withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               Text((a['date'] as String? ?? '').split('-').last, style: TextStyle(fontWeight: FontWeight.w800, color: statusColor(a['status']))),
               Text(fmtDate(a['date']).split(' ').elementAt(1), style: const TextStyle(fontSize: 11)),

@@ -132,8 +132,8 @@ class EmptyView extends StatelessWidget {
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Container(
               padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(color: AppColors.navy.withOpacity(0.06), shape: BoxShape.circle),
-              child: Icon(icon, size: 40, color: AppColors.navy.withOpacity(0.5)),
+              decoration: BoxDecoration(color: AppColors.navy.withValues(alpha: 0.06), shape: BoxShape.circle),
+              child: Icon(icon, size: 40, color: AppColors.navy.withValues(alpha: 0.5)),
             ),
             const SizedBox(height: 14),
             Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
@@ -165,7 +165,7 @@ class StatCard extends StatelessWidget {
               Row(children: [
                 Container(
                   padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(color: color.withOpacity(0.12), borderRadius: BorderRadius.circular(10)),
+                  decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(10)),
                   child: Icon(icon, color: color, size: 20),
                 ),
                 const Spacer(),
@@ -244,7 +244,7 @@ class StatusChip extends StatelessWidget {
     final c = statusColor(status);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-      decoration: BoxDecoration(color: c.withOpacity(0.12), borderRadius: BorderRadius.circular(20)),
+      decoration: BoxDecoration(color: c.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(20)),
       child: Text(label ?? titleCase(status), style: TextStyle(color: c, fontSize: 11.5, fontWeight: FontWeight.w700)),
     );
   }
@@ -258,9 +258,9 @@ class DemoBadge extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         padding: EdgeInsets.symmetric(horizontal: small ? 6 : 10, vertical: small ? 2 : 5),
         decoration: BoxDecoration(
-          color: AppColors.demo.withOpacity(0.12),
+          color: AppColors.demo.withValues(alpha: 0.12),
           borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: AppColors.demo.withOpacity(0.5)),
+          border: Border.all(color: AppColors.demo.withValues(alpha: 0.5)),
         ),
         child: Text('SYNTHETIC DEMO',
             style: TextStyle(color: AppColors.demo, fontSize: small ? 9.5 : 11.5, fontWeight: FontWeight.w800, letterSpacing: 0.4)),
@@ -284,7 +284,7 @@ class AvatarCircle extends StatelessWidget {
         : name.trim().split(RegExp(r'\s+')).take(2).map((w) => w[0].toUpperCase()).join();
     return CircleAvatar(
       radius: radius,
-      backgroundColor: AppColors.teal.withOpacity(0.18),
+      backgroundColor: AppColors.teal.withValues(alpha: 0.18),
       child: Text(initials, style: TextStyle(color: AppColors.navy, fontWeight: FontWeight.w700, fontSize: radius * 0.7)),
     );
   }

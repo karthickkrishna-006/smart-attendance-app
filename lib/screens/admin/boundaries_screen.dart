@@ -441,7 +441,7 @@ class _GeoJsonImportScreenState extends State<GeoJsonImportScreen> {
                 layers: [
                   PolygonLayer(
                     polygons: _parsed!
-                        .map((f) => Polygon(points: f['points'] as List<LatLng>, color: AppColors.teal.withOpacity(0.2), borderColor: AppColors.teal, borderStrokeWidth: 2))
+                        .map((f) => Polygon(points: f['points'] as List<LatLng>, color: AppColors.teal.withValues(alpha: 0.2), borderColor: AppColors.teal, borderStrokeWidth: 2))
                         .toList(),
                   ),
                 ],

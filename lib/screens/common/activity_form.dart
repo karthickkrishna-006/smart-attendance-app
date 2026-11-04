@@ -241,7 +241,7 @@ class _ActivityFormState extends State<ActivityForm> {
           height: 90,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: AppColors.navy.withOpacity(0.3)),
+            border: Border.all(color: AppColors.navy.withValues(alpha: 0.3)),
             color: Colors.white,
           ),
           child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [

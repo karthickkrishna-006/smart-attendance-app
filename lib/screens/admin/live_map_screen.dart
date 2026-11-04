@@ -154,7 +154,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                             point: LatLng(asDouble(l['lat']), asDouble(l['lng'])),
                             radius: asDouble(l['accuracy'], 10),
                             useRadiusInMeter: true,
-                            color: _color(l).withOpacity(0.12),
+                            color: _color(l).withValues(alpha: 0.12),
                           ))
                       .toList(),
                 ),

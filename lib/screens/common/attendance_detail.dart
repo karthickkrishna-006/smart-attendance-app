@@ -92,7 +92,7 @@ class _AttendanceDetailState extends State<AttendanceDetail> {
           height: 170,
           child: OsmMap(center: ll, zoom: 16, layers: [
             if (_b != null) PolygonLayer(polygons: [boundaryPolygon(_b!)]),
-            CircleLayer(circles: [CircleMarker(point: ll, radius: asDouble(p['accuracy'], 10), useRadiusInMeter: true, color: AppColors.info.withOpacity(0.15))]),
+            CircleLayer(circles: [CircleMarker(point: ll, radius: asDouble(p['accuracy'], 10), useRadiusInMeter: true, color: AppColors.info.withValues(alpha: 0.15))]),
             MarkerLayer(markers: [Marker(point: ll, width: 20, height: 20, child: const MyLocationDot())]),
           ]),
         ),

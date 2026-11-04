@@ -103,7 +103,7 @@ class _WorkerHomeState extends State<WorkerHome> {
   Widget _enrollBanner(BuildContext context) => Padding(
         padding: const EdgeInsets.only(bottom: 14),
         child: Card(
-          color: AppColors.warning.withOpacity(0.08),
+          color: AppColors.warning.withValues(alpha: 0.08),
           child: ListTile(
             leading: const Icon(Icons.face_retouching_natural, color: AppColors.warning, size: 32),
             title: const Text('Face not enrolled', style: TextStyle(fontWeight: FontWeight.w700)),
@@ -184,7 +184,7 @@ class _WorkerHomeState extends State<WorkerHome> {
   Widget _timeBox(String label, String value, IconData icon, Color c) => Expanded(
         child: Container(
           padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(color: c.withOpacity(0.07), borderRadius: BorderRadius.circular(12)),
+          decoration: BoxDecoration(color: c.withValues(alpha: 0.07), borderRadius: BorderRadius.circular(12)),
           child: Column(children: [
             Icon(icon, color: c, size: 20),
             const SizedBox(height: 4),
@@ -249,7 +249,7 @@ class _AreaCardState extends State<_AreaCard> {
                   if (b != null) PolygonLayer(polygons: [boundaryPolygon(b, highlight: true)]),
                   if (_pos != null)
                     CircleLayer(circles: [
-                      CircleMarker(point: _pos!, radius: _acc ?? 10, useRadiusInMeter: true, color: AppColors.info.withOpacity(0.15), borderColor: AppColors.info, borderStrokeWidth: 1),
+                      CircleMarker(point: _pos!, radius: _acc ?? 10, useRadiusInMeter: true, color: AppColors.info.withValues(alpha: 0.15), borderColor: AppColors.info, borderStrokeWidth: 1),
                     ]),
                   if (_pos != null) MarkerLayer(markers: [Marker(point: _pos!, width: 20, height: 20, child: const MyLocationDot())]),
                 ],
