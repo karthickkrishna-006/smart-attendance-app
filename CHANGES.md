@@ -69,3 +69,33 @@ Nothing in this revision has been compiled or run (see `docs/STATUS.md`).
 - **No rule changes:** `firestore.rules` and `storage.rules` are unchanged, and all 16 assertions are unchanged.
 - **Output:** `tests/rules/package.json` uses `--test-reporter=spec`, which lists every test name and result in the CI log.
 - **Not yet run:** these tests have NOT been executed by the developer, because the Firebase emulator and npm registry were not reachable from the development environment. The GitHub Actions `rules-test` job is the first execution.
+
+# Revision 4: first-time sign-in fix, activity and face-status fixes, smaller test APKs
+
+## Sign-in (the "only the admin can sign in" problem)
+- **Cause:** on a brand-new account, the sign-in code (`signInGoogle` / `register`) and `AuthGate` both called `ensureProfile` at the same moment. Both saw "no profile yet" and both wrote one; the security rules (correctly) rejected the second write. A new worker therefore saw "permission denied", "Could not load your profile", or a Google login screen that closed with no message. Existing accounts (such as the admin) were unaffected because their profile already existed.
+- **Fix** (`lib/services/auth_service.dart`): `ensureProfile` is now single-flight, so concurrent callers for the same user share one operation. The name and phone typed on the registration form are remembered before the account is created, so they are used whichever caller runs first. If a create is still rejected because the profile was created elsewhere in the meantime, the app re-checks the server instead of failing.
+- **Google diagnostics:** the Google Sign-In error is logged, a missing ID token gives a clear message, and cancelling the account picker now shows a message instead of silently closing (`lib/screens/auth/login_screen.dart`).
+
+## Activity submission (`lib/screens/common/activity_form.dart`)
+- The activity record and the task-status change are now written in one batch (both succeed or neither).
+- The task status only moves forward along transitions the rules allow (assigned → in_progress → submitted). Previously, re-submitting on a submitted/completed task tried to set it back to `in_progress`; the rules rejected that and left the activity saved but the task unchanged.
+
+## Face verification status (`lib/screens/worker/check_flow_screen.dart`, `lib/core/ui.dart`)
+- "Not enrolled" and "could not read the template" are now reported separately (`not_enrolled` vs `unavailable`). Neither is treated as verified; both send attendance to `pending_verification`.
+- `not_enrolled`, `not_performed` and `no_face` are shown with the warning colour.
+
+## Build and APK size
+- `android/app/build.gradle`: release builds without a release key are signed with the CI test key (registered in Firebase) instead of the local Android debug key, so Google Sign-In works in test release APKs. The real release key is still used whenever `key.properties` exists.
+- `.github/workflows/build-debug-apk.yml` (phone-testing builds):
+  - Flutter 3.27.4 (same as the release workflow), `flutter analyze --no-fatal-infos`, and a non-blocking formatting report.
+  - Builds a 64-bit debug APK plus **per-CPU release APKs** (64-bit and older 32-bit phones) instead of one large universal debug APK. x86 emulator code is no longer included.
+  - New verification step for every APK: package name must be `in.cit.smartattendance`; signature verified; warns if the signing SHA-1 is not registered in `google-services.json` (the usual cause of Google Sign-In "error 10"); writes a size table and the 15 largest files in the APK to the job summary.
+- `.github/workflows/build-apk.yml` (official release key): now runs only when started by hand or for pull requests, so a missing release key no longer fails every push. Also builds an Android App Bundle (`.aab`) for future Google Play use.
+
+## Not changed
+- `firestore.rules` and `storage.rules` are unchanged. The placeholder admin email in the repository copy is intentional: the rules tests replace it, and the deployed copy holds the real address.
+
+## Not yet verified
+- Compilation, `flutter analyze`, unit tests, rules tests and APK sizes are verified by the first GitHub Actions run. Device testing is still required.
+- In the development environment, the changed Dart files were parse-checked with the Dart SDK, the workflow YAML was validated, and the APK verification script was dry-run with stand-in tools.

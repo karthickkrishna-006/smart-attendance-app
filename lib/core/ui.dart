@@ -213,6 +213,9 @@ Color statusColor(String? s) {
     case 'medium':
     case 'low_accuracy':
     case 'unavailable':
+    case 'not_enrolled':
+    case 'not_performed':
+    case 'no_face':
     case 'no_boundary':
       return AppColors.warning;
     case 'rejected':

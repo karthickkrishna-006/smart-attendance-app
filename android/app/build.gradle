@@ -77,7 +77,16 @@ android {
             }
         }
         release {
-            signingConfig = keystorePropertiesFile.exists() ? signingConfigs.release : signingConfigs.debug
+            // Real release key when key.properties exists; otherwise the CI debug
+            // key (registered in Firebase, so Google Sign-In works in test builds);
+            // otherwise the local Android debug key.
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.release
+            } else if (ciDebugSigningConfigured) {
+                signingConfig = signingConfigs.ciDebug
+            } else {
+                signingConfig = signingConfigs.debug
+            }
             minifyEnabled = false
             shrinkResources = false
         }

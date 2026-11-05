@@ -88,7 +88,10 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _google() async {
     setState(() => _googleBusy = true);
     try {
-      await AuthService.signInGoogle();
+      final ok = await AuthService.signInGoogle();
+      if (!ok && mounted) {
+        showSnack(context, 'Google sign-in was cancelled. If you did not cancel it, please try again or use email and password.');
+      }
     } catch (e) {
       if (mounted) showSnack(context, AuthService.errorText(e), error: true);
     } finally {

@@ -112,7 +112,21 @@ class _ActivityFormState extends State<ActivityForm> {
           throw 'Photo upload failed: ${EvidenceStorage.errorText(e)}';
         }
       }
-      await ref.set({
+      // Only move the task forward along a transition the security rules allow
+      // (assigned -> in_progress -> submitted). Previously a re-submission on
+      // an already submitted/completed task tried to set it back to
+      // 'in_progress', the rules rejected that, and the activity was left
+      // saved while the task update failed.
+      final current = (widget.task['status'] as String?) ?? 'assigned';
+      String? next;
+      if (_markDone && (current == 'assigned' || current == 'in_progress')) {
+        next = 'submitted';
+      } else if (current == 'assigned') {
+        next = 'in_progress';
+      }
+      // Activity and task status are written together: both succeed or neither.
+      final batch = Db.fs.batch();
+      batch.set(ref, {
         'taskId': widget.task['id'],
         'taskTitle': widget.task['title'],
         'uid': widget.me.uid,
@@ -129,10 +143,13 @@ class _ActivityFormState extends State<ActivityForm> {
         'synthetic': false,
         'createdAt': FieldValue.serverTimestamp(),
       });
-      await Db.col('tasks').doc(widget.task['id']).update({
-        'status': _markDone ? 'submitted' : 'in_progress',
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      if (next != null) {
+        batch.update(Db.col('tasks').doc(widget.task['id']), {
+          'status': next,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+      await batch.commit();
       await Db.audit('activity_submitted', 'tasks/${widget.task['id']}', {'images': paths.length});
       if (!mounted) return;
       showSnack(context, 'Activity submitted for supervisor review.', success: true);

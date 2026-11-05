@@ -104,9 +104,18 @@ class _CheckFlowScreenState extends State<CheckFlowScreen> {
     } catch (_) {
       ref = null;
     }
-    final r = ref == null
-        ? FaceVerification('unavailable', false, null, threshold, 'Could not read your enrolled face template (offline or not enrolled).')
-        : await FaceService.verify(x.path, ref, threshold);
+    // "Not enrolled" and "could not read the template" are reported separately,
+    // and neither is ever treated as verified.
+    final FaceVerification r;
+    if (!widget.me.faceEnrolled) {
+      r = FaceVerification('not_enrolled', false, null, threshold,
+          'Your face is not enrolled yet. Enrol it from your Profile, or ask your supervisor. Attendance will be sent for manual verification.');
+    } else if (ref == null) {
+      r = FaceVerification('unavailable', false, null, threshold,
+          'Could not read your enrolled face template (check your internet connection). Attendance will be sent for manual verification.');
+    } else {
+      r = await FaceService.verify(x.path, ref, threshold);
+    }
     try {
       await File(x.path).delete(); // selfie is never kept
     } catch (_) {}
@@ -141,7 +150,7 @@ class _CheckFlowScreenState extends State<CheckFlowScreen> {
     final s = _settings!;
     final geoUnknown = _geo == null || _geo!.status == 'no_boundary' || _geo!.status == 'low_accuracy';
     final faceOk = _face?.verified == true;
-    final faceUnknown = _face == null || _face!.status == 'unavailable';
+    final faceUnknown = _face == null || _face!.status == 'unavailable' || _face!.status == 'not_enrolled';
     final reqBoundary = s['requireBoundary'] == true;
     if (_face?.status == 'failed') return 'rejected';
     if (reqBoundary && _geo?.status == 'outside') return 'rejected';

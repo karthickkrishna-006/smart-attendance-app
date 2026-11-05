@@ -21,8 +21,21 @@ class AuthService {
   }
 
   static Future<void> register(String name, String email, String password, String phone) async {
-    final cred = await _auth.createUserWithEmailAndPassword(email: email.trim(), password: password);
-    await cred.user!.updateDisplayName(name.trim());
+    // Remember the form details BEFORE the account exists: creating the
+    // account immediately notifies AuthGate, which also calls ensureProfile.
+    // Both calls share one operation (see _inFlight), so the details typed in
+    // the form are used whichever call starts first.
+    _pendingDetails = (name: name.trim(), phone: phone.trim());
+    final UserCredential cred;
+    try {
+      cred = await _auth.createUserWithEmailAndPassword(email: email.trim(), password: password);
+    } catch (_) {
+      _pendingDetails = null;
+      rethrow;
+    }
+    try {
+      await cred.user!.updateDisplayName(name.trim());
+    } catch (_) {}
     await ensureProfile(cred.user!, name: name.trim(), phone: phone.trim());
     try {
       await cred.user!.sendEmailVerification();
@@ -32,11 +45,25 @@ class AuthService {
 
   /// Returns false if the user cancelled the Google account picker.
   static Future<bool> signInGoogle() async {
-    final account = await _google.signIn();
+    final GoogleSignInAccount? account;
+    try {
+      account = await _google.signIn();
+    } catch (e) {
+      // Logs only the error code (e.g. ApiException: 10 = SHA-1 not registered).
+      debugPrint('[google-signin-diagnostic] step=account_picker error=$e');
+      rethrow;
+    }
     if (account == null) return false;
     final auth = await account.authentication;
+    if (auth.idToken == null) {
+      debugPrint('[google-signin-diagnostic] step=token idToken=null');
+      throw 'Google Sign-In did not return an ID token. The Web client ID may be missing from google-services.json.';
+    }
     final credential = GoogleAuthProvider.credential(accessToken: auth.accessToken, idToken: auth.idToken);
+    _pendingDetails = (name: account.displayName ?? '', phone: '');
     final res = await _auth.signInWithCredential(credential);
+    // AuthGate starts ensureProfile as soon as the sign-in above completes;
+    // this call joins that same operation instead of racing it.
     await ensureProfile(res.user!, name: account.displayName ?? res.user!.displayName ?? '');
     await Db.audit('login', 'auth', {'method': 'google'});
     return true;
@@ -62,7 +89,30 @@ class AuthService {
   ///    Administrator role – and only once (meta/bootstrap is write-once).
   /// The client simply attempts the bootstrap; the rules reject it for
   /// everyone else, and the account stays a pending worker.
-  static Future<void> ensureProfile(User u, {String? name, String? phone}) async {
+  static Future<void> ensureProfile(User u, {String? name, String? phone}) {
+    // Single-flight: concurrent callers for the same user share one Future.
+    // Previously the sign-in code and AuthGate both created the profile at
+    // the same time; the security rules rejected the second write, so a
+    // brand-new worker saw "permission denied" or a login screen that closed.
+    final running = _inFlight[u.uid];
+    if (running != null) return running;
+    final details = _pendingDetails;
+    final f = _ensureProfile(
+      u,
+      name: (name != null && name.isNotEmpty) ? name : details?.name,
+      phone: (phone != null && phone.isNotEmpty) ? phone : details?.phone,
+    ).whenComplete(() {
+      _inFlight.remove(u.uid);
+      _pendingDetails = null;
+    });
+    _inFlight[u.uid] = f;
+    return f;
+  }
+
+  static final Map<String, Future<void>> _inFlight = {};
+  static ({String name, String phone})? _pendingDetails;
+
+  static Future<void> _ensureProfile(User u, {String? name, String? phone}) async {
     final ref = Db.col('users').doc(u.uid);
     var operation = 'read';
     try {
@@ -85,9 +135,21 @@ class AuthService {
       }
     } catch (error) {
       logProfileFailure(u, operation, error);
-      rethrow;
+      final createdElsewhere = operation == 'create' &&
+          error is FirebaseException &&
+          error.code == 'permission-denied' &&
+          await _profileExists(ref);
+      if (!createdElsewhere) rethrow;
     }
     await _tryBootstrapAdmin(u);
+  }
+
+  static Future<bool> _profileExists(DocumentReference<Map<String, dynamic>> ref) async {
+    try {
+      return (await ref.get(const GetOptions(source: Source.server))).exists;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Logs only non-secret context needed to diagnose profile access failures.
