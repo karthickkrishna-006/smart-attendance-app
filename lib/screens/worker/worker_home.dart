@@ -306,14 +306,7 @@ class _TodayTasks extends StatelessWidget {
           final due = toDate(e['dueDate']);
           return due != null && due.isBefore(DateTime.now()) && e['status'] != 'completed';
         }).length;
-        return GridView.count(
-          crossAxisCount: 2,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: 10,
-          crossAxisSpacing: 10,
-          childAspectRatio: 1.45,
-          children: [
+        return StatGrid(children: [
             StatCard(label: 'Assigned', value: '${c('assigned')}', icon: Icons.assignment_ind_outlined, color: AppColors.info),
             StatCard(label: 'In progress', value: '${c('in_progress')}', icon: Icons.autorenew, color: AppColors.warning),
             StatCard(label: 'Completed', value: '${c('completed')}', icon: Icons.task_alt, color: AppColors.success),

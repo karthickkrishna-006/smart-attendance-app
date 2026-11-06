@@ -24,6 +24,12 @@ class SmartAttendanceApp extends StatelessWidget {
       title: 'Smart Attendance',
       debugShowCheckedModeBanner: false,
       theme: buildTheme(),
+      // Respect the phone's text size (many field workers use large text),
+      // up to 130 %, beyond which navigation bars and buttons stop fitting.
+      builder: (context, child) => MediaQuery.withClampedTextScaling(
+        maxScaleFactor: 1.3,
+        child: child ?? const SizedBox.shrink(),
+      ),
       home: const SplashScreen(),
     );
   }

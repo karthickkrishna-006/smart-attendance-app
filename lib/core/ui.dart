@@ -165,12 +165,15 @@ class StatCard extends StatelessWidget {
   const StatCard({super.key, required this.label, required this.value, required this.icon, required this.color, this.sub, this.onTap});
   @override
   Widget build(BuildContext context) => Card(
+        margin: EdgeInsets.zero,
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
           onTap: onTap,
           child: Padding(
             padding: const EdgeInsets.all(14),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            // No fixed height: the card grows with its text (large phone font
+            // sizes included), so nothing is cut off or spills outside.
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
               Row(children: [
                 Container(
                   padding: const EdgeInsets.all(8),
@@ -181,13 +184,45 @@ class StatCard extends StatelessWidget {
                 if (onTap != null) const Icon(Icons.chevron_right, size: 18, color: AppColors.muted),
               ]),
               const SizedBox(height: 10),
-              Text(value, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700)),
-              Text(label, style: const TextStyle(color: AppColors.muted, fontSize: 12.5)),
-              if (sub != null) Text(sub!, style: TextStyle(color: color, fontSize: 11.5, fontWeight: FontWeight.w600)),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(value, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700)),
+              ),
+              Text(label, style: const TextStyle(color: AppColors.muted, fontSize: 12.5), maxLines: 2, overflow: TextOverflow.ellipsis),
+              if (sub != null) ...[
+                const SizedBox(height: 2),
+                Text(sub!, style: TextStyle(color: color, fontSize: 11.5, fontWeight: FontWeight.w600), maxLines: 2, overflow: TextOverflow.ellipsis),
+              ],
             ]),
           ),
         ),
       );
+}
+
+/// Cards in rows of [columns]. Each row is as tall as its tallest card and
+/// all cards in a row share that height, so cards never cut off or overflow
+/// their text, whatever the phone's font size. (Replaces fixed-ratio grids.)
+class StatGrid extends StatelessWidget {
+  final List<Widget> children;
+  final int columns;
+  final double spacing;
+  const StatGrid({super.key, required this.children, this.columns = 2, this.spacing = 10});
+  @override
+  Widget build(BuildContext context) {
+    final rows = <Widget>[];
+    for (var i = 0; i < children.length; i += columns) {
+      final cells = <Widget>[];
+      for (var j = 0; j < columns; j++) {
+        if (j > 0) cells.add(SizedBox(width: spacing));
+        final k = i + j;
+        cells.add(Expanded(child: k < children.length ? children[k] : const SizedBox.shrink()));
+      }
+      if (rows.isNotEmpty) rows.add(SizedBox(height: spacing));
+      rows.add(IntrinsicHeight(child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: cells)));
+    }
+    return Column(mainAxisSize: MainAxisSize.min, children: rows);
+  }
 }
 
 class SectionTitle extends StatelessWidget {

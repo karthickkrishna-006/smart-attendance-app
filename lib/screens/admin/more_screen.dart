@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/theme.dart';
+import '../../core/ui.dart';
 import '../../services/models.dart';
 import '../common/alerts_screen.dart';
 import '../common/profile_screen.dart';
@@ -30,14 +31,12 @@ class MoreScreen extends StatelessWidget {
     ];
     return Scaffold(
       appBar: AppBar(title: const Text('More')),
-      body: GridView.count(
-        padding: const EdgeInsets.all(16),
-        crossAxisCount: 2,
-        mainAxisSpacing: 12,
-        crossAxisSpacing: 12,
-        childAspectRatio: 1.15,
-        children: items
+      body: ListView(padding: const EdgeInsets.all(16), children: [
+        StatGrid(
+          spacing: 12,
+          children: items
             .map((it) => Card(
+                  margin: EdgeInsets.zero,
                   child: InkWell(
                     borderRadius: BorderRadius.circular(16),
                     onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => it.$5)),
@@ -49,15 +48,17 @@ class MoreScreen extends StatelessWidget {
                           decoration: BoxDecoration(color: it.$4.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(12)),
                           child: Icon(it.$1, color: it.$4),
                         ),
-                        const Spacer(),
-                        Text(it.$2, style: const TextStyle(fontWeight: FontWeight.w700)),
+                        const SizedBox(height: 12),
+                        Text(it.$2, style: const TextStyle(fontWeight: FontWeight.w700), maxLines: 2, overflow: TextOverflow.ellipsis),
                         const SizedBox(height: 2),
-                        Text(it.$3, style: const TextStyle(fontSize: 11.5, color: AppColors.muted), maxLines: 2),
+                        Text(it.$3, style: const TextStyle(fontSize: 11.5, color: AppColors.muted), maxLines: 3, overflow: TextOverflow.ellipsis),
                       ]),
                     ),
                   ),
                 ))
             .toList(),
+        ),
+      ]
       ),
     );
   }

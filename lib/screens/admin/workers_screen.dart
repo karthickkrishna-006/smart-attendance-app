@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollDirection;
 import '../../core/fmt.dart';
 import '../../core/theme.dart';
 import '../../core/ui.dart';
@@ -15,6 +16,17 @@ class WorkersScreen extends StatefulWidget {
 }
 
 class _WorkersScreenState extends State<WorkersScreen> {
+  // The floating button shrinks to an icon while scrolling down, so it
+  // does not hide list content, and expands again when scrolling up.
+  bool _fabExtended = true;
+
+  bool _onScroll(UserScrollNotification n) {
+    if (n.metrics.axis != Axis.vertical) return false;
+    final extended = n.direction != ScrollDirection.reverse;
+    if (extended != _fabExtended) setState(() => _fabExtended = extended);
+    return false;
+  }
+
   String _q = '';
   String _role = 'all';
   String _status = 'all';
@@ -27,12 +39,15 @@ class _WorkersScreenState extends State<WorkersScreen> {
       floatingActionButton: widget.me.isAdmin
           ? FloatingActionButton.extended(
               heroTag: 'addWorker',
+              isExtended: _fabExtended,
               onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => WorkerEditScreen(me: widget.me))),
               icon: const Icon(Icons.person_add_alt_1_outlined),
               label: const Text('Add worker'),
             )
           : null,
-      body: LiveQueries(
+      body: NotificationListener<UserScrollNotification>(
+        onNotification: _onScroll,
+        child: LiveQueries(
         queries: [Db.col('users'), Db.col('attendance').where('date', isEqualTo: today), Db.col('boundaries')],
         builder: (context, d) {
           final att = {for (final a in d[1]) a['uid']: a};
@@ -90,26 +105,52 @@ class _WorkersScreenState extends State<WorkersScreen> {
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 8),
                           child: Card(
-                            child: ListTile(
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(16),
                               onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => WorkerDetailScreen(uid: u['id'], me: widget.me))),
-                              leading: AvatarCircle(name: u['name'] ?? ''),
-                              title: Row(children: [
-                                Flexible(child: Text(u['name'] ?? '', style: const TextStyle(fontWeight: FontWeight.w700), overflow: TextOverflow.ellipsis)),
-                                if (u['synthetic'] == true) ...[const SizedBox(width: 6), const DemoBadge()],
-                              ]),
-                              subtitle: Text(
-                                [
-                                  Roles.label(role),
-                                  if ((u['employeeId'] ?? '').toString().isNotEmpty) u['employeeId'],
-                                  if (bNames[u['boundaryId']] != null) bNames[u['boundaryId']],
-                                ].join(' · '),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+                                // Name on its own full-width line, details below,
+                                // then status chips: nothing competes for space,
+                                // even with a large phone font.
+                                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                  AvatarCircle(name: u['name'] ?? ''),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                      Text(
+                                        (u['name'] ?? '').toString().isEmpty ? '(no name)' : u['name'],
+                                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15.5),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        [
+                                          Roles.label(role),
+                                          if ((u['employeeId'] ?? '').toString().isNotEmpty) u['employeeId'],
+                                          if (bNames[u['boundaryId']] != null) bNames[u['boundaryId']],
+                                        ].join(' · '),
+                                        style: const TextStyle(color: AppColors.muted, fontSize: 13),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Wrap(spacing: 6, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                                        role == 'worker'
+                                            ? StatusChip(a?['status'] ?? ((u['status'] ?? 'active') == 'active' ? 'absent' : u['status']),
+                                                label: a == null ? ((u['status'] ?? 'active') == 'active' ? 'Not marked today' : titleCase(u['status'])) : null)
+                                            : StatusChip(u['status'] ?? 'active'),
+                                        if (u['synthetic'] == true) const DemoBadge(),
+                                      ]),
+                                    ]),
+                                  ),
+                                  const Padding(
+                                    padding: EdgeInsets.only(top: 10),
+                                    child: Icon(Icons.chevron_right, color: AppColors.muted),
+                                  ),
+                                ]),
                               ),
-                              trailing: role == 'worker'
-                                  ? StatusChip(a?['status'] ?? ((u['status'] ?? 'active') == 'active' ? 'absent' : u['status']),
-                                      label: a == null ? ((u['status'] ?? 'active') == 'active' ? 'Not marked' : titleCase(u['status'])) : null)
-                                  : StatusChip(u['status'] ?? 'active'),
                             ),
                           ),
                         );
@@ -118,6 +159,7 @@ class _WorkersScreenState extends State<WorkersScreen> {
             ),
           ]);
         },
+      ),
       ),
     );
   }

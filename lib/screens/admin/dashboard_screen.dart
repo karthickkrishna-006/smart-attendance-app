@@ -143,17 +143,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
             padding: EdgeInsets.only(top: 8),
             child: Row(children: [DemoBadge(), SizedBox(width: 8), Expanded(child: Text('Dashboard includes synthetic demo records.', style: TextStyle(fontSize: 12, color: AppColors.muted)))]),
           ),
+        // Approval was removed (Revision 5): accounts created before that
+        // still say pending_approval and activate themselves at next sign-in.
         if (pendingApproval > 0 && widget.me.isStaff)
           Padding(
-            padding: const EdgeInsets.only(top: 10),
-            child: Card(
-              color: AppColors.warning.withValues(alpha: 0.08),
-              child: ListTile(
-                leading: const Icon(Icons.how_to_reg, color: AppColors.warning),
-                title: Text('$pendingApproval account(s) awaiting approval'),
-                subtitle: const Text('Workers tab → filter "Pending approval" → Edit → set status Active'),
+            padding: const EdgeInsets.only(top: 8),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Icon(Icons.info_outline, size: 16, color: AppColors.muted),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  '$pendingApproval older account${pendingApproval == 1 ? '' : 's'} will activate automatically at the next sign-in. No action needed.',
+                  style: const TextStyle(fontSize: 12, color: AppColors.muted),
+                ),
               ),
-            ),
+            ]),
           ),
         const SizedBox(height: 10),
         Row(children: [
@@ -165,14 +169,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Expanded(child: _drop('Panchayat', _panchayat, pans, (v) => setState(() => _panchayat = v))),
         ]),
         const SizedBox(height: 14),
-        GridView.count(
-          crossAxisCount: 2,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: 10,
-          crossAxisSpacing: 10,
-          childAspectRatio: 1.32,
-          children: [
+        StatGrid(children: [
             StatCard(label: 'Total workers', value: '${workers.length}', icon: Icons.groups_outlined, color: AppColors.navy, sub: '${active.length} active · ${workers.length - active.length} inactive'),
             StatCard(
               label: 'Attendance',

@@ -279,3 +279,15 @@ Gaps fixed:
   - **Cleanup (`if: always()`):** also removes the certificate dumps and Gradle's signing-config intermediates.
 - **`build-apk.yml` (production) is unchanged:** it still writes `key.properties` from the production secrets, verifies the production SHA-1, and deletes the key in an `if: always()` step.
 - **`docs/GITHUB_UPLOAD_AND_BUILD.md`:** the steps for registering the debug SHA-1 are corrected, and the new error messages are explained.
+
+# Revision 10: interface fixes from phone screenshots
+
+Revisions 5–9 built successfully on GitHub Actions (Build Debug APK run 12, commit `79a6b31`): rules tests, `flutter analyze`, `flutter test` and the signing checks passed; the phone APK download is 29.8 MB. Screenshots from the installed app showed these interface problems, now fixed:
+
+- **Dashboard / Field coverage / worker home cards cut off or overflowing** with a large phone font: fixed-ratio grids are replaced by `StatGrid` (`lib/core/ui.dart`). Each row grows to its tallest card, cards in a row share the height, and long sub-lines wrap to 2 lines.
+- **More screen tiles** use the same layout, so long titles and descriptions no longer clip.
+- **Workers list showed no names** (the demo badge and status chip squeezed the name to zero width): each row now has the name on its own line, details below, then status and demo badge.
+- **Outdated "awaiting approval… set status Active" banner** (approval was removed in Revision 5): replaced by a small note that older pending accounts activate automatically at next sign-in.
+- **"New task" / "Add worker" buttons covering list content:** they shrink to an icon while scrolling down and expand when scrolling up.
+- **Text size:** the phone's font size is respected up to 130 %; beyond that, navigation bars and buttons stop fitting.
+- `.github/workflows/build-apk.yml`: the Revision 6 version (manual start only) is included again. GitHub still has the old version, which runs on every push and fails ("Build Android APK") because no production release key is configured.

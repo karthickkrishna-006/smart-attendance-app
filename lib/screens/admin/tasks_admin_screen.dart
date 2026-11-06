@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollDirection;
 import '../../core/fmt.dart';
 import '../../core/ui.dart';
 import '../../services/db.dart';
@@ -14,6 +15,17 @@ class TasksAdminScreen extends StatefulWidget {
 }
 
 class _TasksAdminScreenState extends State<TasksAdminScreen> {
+  // The floating button shrinks to an icon while scrolling down, so it
+  // does not hide list content, and expands again when scrolling up.
+  bool _fabExtended = true;
+
+  bool _onScroll(UserScrollNotification n) {
+    if (n.metrics.axis != Axis.vertical) return false;
+    final extended = n.direction != ScrollDirection.reverse;
+    if (extended != _fabExtended) setState(() => _fabExtended = extended);
+    return false;
+  }
+
   String _filter = 'all';
   String _q = '';
 
@@ -23,11 +35,14 @@ class _TasksAdminScreenState extends State<TasksAdminScreen> {
       appBar: AppBar(title: const Text('Task management')),
       floatingActionButton: FloatingActionButton.extended(
         heroTag: 'newTask',
+              isExtended: _fabExtended,
         onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => TaskFormScreen(me: widget.me))),
         icon: const Icon(Icons.add_task),
         label: const Text('New task'),
       ),
-      body: LiveQueries(
+      body: NotificationListener<UserScrollNotification>(
+        onNotification: _onScroll,
+        child: LiveQueries(
         queries: [Db.col('tasks')],
         builder: (context, d) {
           final all = d[0];
@@ -57,6 +72,7 @@ class _TasksAdminScreenState extends State<TasksAdminScreen> {
             ),
           ]);
         },
+      ),
       ),
     );
   }

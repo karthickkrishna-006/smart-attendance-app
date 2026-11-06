@@ -164,14 +164,7 @@ class _CoverageScreenState extends State<CoverageScreen> {
                 padding: EdgeInsets.only(bottom: 10),
                 child: Text('Showing duty by your assigned workers only.', style: TextStyle(color: AppColors.muted)),
               ),
-            GridView.count(
-              crossAxisCount: 2,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              mainAxisSpacing: 10,
-              crossAxisSpacing: 10,
-              childAspectRatio: 1.45,
-              children: [
+            StatGrid(children: [
                 StatCard(
                   label: 'Panchayats covered',
                   value: '$covered / ${scope.length}',
