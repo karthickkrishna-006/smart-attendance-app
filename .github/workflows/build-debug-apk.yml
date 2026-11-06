@@ -1,4 +1,3 @@
-
 name: Build Debug APK
 
 on:
@@ -43,109 +42,258 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.27.0'
+          flutter-version: '3.27.4'
           channel: stable
+          cache: true
 
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Analyze
-        run: flutter analyze
+      - name: Formatting report (does not fail the build)
+        continue-on-error: true
+        run: dart format --output=none --set-exit-if-changed lib test
+
+      - name: Analyze (errors and warnings fail the build)
+        run: |
+          set -o pipefail
+          flutter analyze --no-fatal-infos 2>&1 | tee "$RUNNER_TEMP/flutter-analyze.txt"
 
       - name: Test
-        run: flutter test
+        run: |
+          set -o pipefail
+          flutter test --reporter expanded 2>&1 | tee "$RUNNER_TEMP/flutter-test.txt"
+
+      - name: Test report (always written, also when a step above failed)
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Test report"
+            echo ""
+            TAP=tests/rules/rules-results.tap
+            if [[ -f "$TAP" ]]; then
+              PASS=$(grep -cE '^ok [0-9]+' "$TAP" || true)
+              FAIL=$(grep -cE '^not ok [0-9]+' "$TAP" || true)
+              echo "**Firebase security rules tests (emulator):** $PASS passed, $FAIL failed"
+              if [[ "$FAIL" != "0" ]]; then
+                echo ""
+                echo "Failed tests:"
+                grep -E '^not ok [0-9]+' "$TAP" | sed 's/^not ok [0-9]* - /- /'
+              fi
+            else
+              echo "**Firebase security rules tests:** did not run (see the log of the emulator step)"
+            fi
+            echo ""
+            if [[ -f "$RUNNER_TEMP/flutter-analyze.txt" ]]; then
+              ISSUES=$(grep -cE '^\s*(error|warning|info) •' "$RUNNER_TEMP/flutter-analyze.txt" || true)
+              echo "**flutter analyze:** $(tail -n 1 "$RUNNER_TEMP/flutter-analyze.txt")"
+              if [[ "$ISSUES" != "0" ]]; then
+                echo '```'
+                grep -E '^\s*(error|warning|info) •' "$RUNNER_TEMP/flutter-analyze.txt" | head -n 40
+                echo '```'
+              fi
+            else
+              echo "**flutter analyze:** did not run"
+            fi
+            echo ""
+            if [[ -f "$RUNNER_TEMP/flutter-test.txt" ]]; then
+              echo "**flutter test:** $(grep -E '(All tests passed|Some tests failed|[0-9]+ tests? passed)' "$RUNNER_TEMP/flutter-test.txt" | tail -n 1)"
+            else
+              echo "**flutter test:** did not run"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check signing setup (test builds must never use production signing)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Production signing material belongs only to build-apk.yml.
+          for f in android/key.properties android/app/release.jks; do
+            if [[ -e "$f" ]]; then
+              echo "::error::$f must not exist in the repository or in this workflow (production signing only)."
+              exit 1
+            fi
+          done
+          # An older build.gradle without CI debug signing support would silently
+          # sign with Android's default debug key.
+          for v in CI_DEBUG_KEYSTORE_PATH CI_DEBUG_KEYSTORE_PASSWORD CI_DEBUG_KEY_ALIAS CI_DEBUG_KEY_PASSWORD CI_REQUIRE_CI_DEBUG_SIGNING; do
+            if ! grep -q "$v" android/app/build.gradle; then
+              echo "::error::android/app/build.gradle does not read $v. Upload the current android/app/build.gradle."
+              exit 1
+            fi
+          done
+          echo "Signing setup OK: no production signing material; build.gradle reads the CI debug signing variables."
 
       - name: Validate and stage CI debug signing key
-        shell: bash
         env:
           CI_DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
           CI_DEBUG_KEYSTORE_PASSWORD: ${{ secrets.DEBUG_KEYSTORE_PASSWORD }}
           CI_DEBUG_KEY_ALIAS: ${{ secrets.DEBUG_KEY_ALIAS }}
           CI_DEBUG_KEY_PASSWORD: ${{ secrets.DEBUG_KEY_PASSWORD }}
+        shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "$CI_DEBUG_KEYSTORE_BASE64" ]]; then
-            echo "::error::Required GitHub Actions secret DEBUG_KEYSTORE_BASE64 is missing."
-            exit 1
-          fi
-          if [[ -z "$CI_DEBUG_KEYSTORE_PASSWORD" ]]; then
-            echo "::error::Required GitHub Actions secret DEBUG_KEYSTORE_PASSWORD is missing."
-            exit 1
-          fi
-          if [[ -z "$CI_DEBUG_KEY_ALIAS" ]]; then
-            echo "::error::Required GitHub Actions secret DEBUG_KEY_ALIAS is missing."
-            exit 1
-          fi
-          if [[ -z "$CI_DEBUG_KEY_PASSWORD" ]]; then
-            echo "::error::Required GitHub Actions secret DEBUG_KEY_PASSWORD is missing."
-            exit 1
-          fi
+          for v in CI_DEBUG_KEYSTORE_BASE64 CI_DEBUG_KEYSTORE_PASSWORD CI_DEBUG_KEY_ALIAS CI_DEBUG_KEY_PASSWORD; do
+            if [[ -z "${!v:-}" ]]; then
+              echo "::error::Required GitHub Actions secret ${v#CI_} is missing or empty."
+              exit 1
+            fi
+          done
 
           KEYSTORE_PATH="$RUNNER_TEMP/smart-attendance-ci-debug.jks"
+          umask 077
           printf '%s' "$CI_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
-          chmod 600 "$KEYSTORE_PATH"
-          if ! keytool -list -keystore "$KEYSTORE_PATH" -alias "$CI_DEBUG_KEY_ALIAS" \
-            -storepass "$CI_DEBUG_KEYSTORE_PASSWORD" >/dev/null 2>&1; then
-            echo "::error::The configured CI debug keystore, alias, or keystore password is invalid."
+
+          # Passwords are passed to keytool through environment variables
+          # (-storepass:env / -keypass:env), never on the command line, and
+          # keytool output is not printed.
+          if ! keytool -list -v -keystore "$KEYSTORE_PATH" -alias "$CI_DEBUG_KEY_ALIAS" \
+                -storepass:env CI_DEBUG_KEYSTORE_PASSWORD > "$RUNNER_TEMP/ci-debug-cert.txt" 2>/dev/null; then
+            echo "::error::The CI debug keystore, key alias or keystore password is invalid."
+            exit 1
+          fi
+          # The key password must open the key itself (Gradle needs it).
+          if ! keytool -certreq -keystore "$KEYSTORE_PATH" -alias "$CI_DEBUG_KEY_ALIAS" \
+                -storepass:env CI_DEBUG_KEYSTORE_PASSWORD -keypass:env CI_DEBUG_KEY_PASSWORD \
+                -file /dev/null >/dev/null 2>&1; then
+            echo "::error::DEBUG_KEY_PASSWORD does not open the key in the CI debug keystore."
             exit 1
           fi
 
-      - name: Build debug APK
+          # The key's SHA-1 (public, not secret) must be registered for Google Sign-In.
+          SHA1="$(grep -m1 -E '^\s*SHA1:' "$RUNNER_TEMP/ci-debug-cert.txt" | awk '{print $2}' | tr -d ':' | tr 'A-F' 'a-f')"
+          rm -f "$RUNNER_TEMP/ci-debug-cert.txt"
+          if [[ ! "$SHA1" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Could not read the SHA-1 of the CI debug key."
+            exit 1
+          fi
+          REGISTERED="$(jq -r '.client[] | select(.client_info.android_client_info.package_name == "in.cit.smartattendance") | .oauth_client[]? | .android_info.certificate_hash // empty' android/app/google-services.json | tr 'A-F' 'a-f' | sort -u)"
+          if ! grep -qx "$SHA1" <<< "$REGISTERED"; then
+            echo "::error::The CI debug key's SHA-1 ($SHA1) is not registered for in.cit.smartattendance in google-services.json. Add it in Firebase (Project settings > Your apps > SHA certificate fingerprints) and download google-services.json again."
+            exit 1
+          fi
+          echo "CI_DEBUG_CERT_SHA1=$SHA1" >> "$GITHUB_ENV"
+          echo "CI debug key OK. SHA-1 $SHA1 is registered in Firebase."
+
+      - name: Build debug APK (64-bit phones, for testing)
         env:
           CI_DEBUG_KEYSTORE_PATH: ${{ runner.temp }}/smart-attendance-ci-debug.jks
           CI_DEBUG_KEYSTORE_PASSWORD: ${{ secrets.DEBUG_KEYSTORE_PASSWORD }}
           CI_DEBUG_KEY_ALIAS: ${{ secrets.DEBUG_KEY_ALIAS }}
           CI_DEBUG_KEY_PASSWORD: ${{ secrets.DEBUG_KEY_PASSWORD }}
-        run: flutter build apk --debug
+          CI_REQUIRE_CI_DEBUG_SIGNING: 'true'
+        run: flutter build apk --debug --split-per-abi --target-platform android-arm64
 
-      - name: Verify APK signature and artifact identity
+      - name: Build release APKs (one per phone CPU type, signed with the CI test key)
+        env:
+          CI_DEBUG_KEYSTORE_PATH: ${{ runner.temp }}/smart-attendance-ci-debug.jks
+          CI_DEBUG_KEYSTORE_PASSWORD: ${{ secrets.DEBUG_KEYSTORE_PASSWORD }}
+          CI_DEBUG_KEY_ALIAS: ${{ secrets.DEBUG_KEY_ALIAS }}
+          CI_DEBUG_KEY_PASSWORD: ${{ secrets.DEBUG_KEY_PASSWORD }}
+          CI_REQUIRE_CI_DEBUG_SIGNING: 'true'
+        run: flutter build apk --release --split-per-abi --target-platform android-arm,android-arm64
+
+      - name: Verify APKs (package, signature, Firebase key) and report sizes
         shell: bash
         run: |
           set -euo pipefail
-          APK="build/app/outputs/flutter-apk/app-debug.apk"
-          ARTIFACT_APK="dist/SmartAttendance-Debug-APK.apk"
+          OUT=build/app/outputs/flutter-apk
           mkdir -p dist
-          test -f "$APK"
-          cp "$APK" "$ARTIFACT_APK"
-
-          SOURCE_SHA256="$(sha256sum "$APK" | awk '{print $1}')"
-          ARTIFACT_SHA256="$(sha256sum "$ARTIFACT_APK" | awk '{print $1}')"
-          if [[ "$SOURCE_SHA256" != "$ARTIFACT_SHA256" ]]; then
-            echo "::error::The APK staged for upload does not match the built APK."
-            exit 1
-          fi
-
+          declare -A NAMES=(
+            [app-arm64-v8a-debug.apk]=SmartAttendance-debug-arm64.apk
+            [app-arm64-v8a-release.apk]=SmartAttendance-release-arm64.apk
+            [app-armeabi-v7a-release.apk]=SmartAttendance-release-arm32-older-phones.apk
+          )
           BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
           APKSIGNER="$BUILD_TOOLS/apksigner"
-          if [[ ! -x "$APKSIGNER" ]]; then
-            echo "::error::Android apksigner was not found on the runner."
-            exit 1
-          fi
-          SIGNATURE_OUTPUT="$RUNNER_TEMP/smart-attendance-apksigner.txt"
-          "$APKSIGNER" verify --print-certs "$ARTIFACT_APK" > "$SIGNATURE_OUTPUT"
-          SHA1="$(grep -m1 'certificate SHA-1 digest:' "$SIGNATURE_OUTPUT" | awk '{print $NF}')"
-          SHA256="$(grep -m1 'certificate SHA-256 digest:' "$SIGNATURE_OUTPUT" | awk '{print $NF}')"
-          if [[ -z "$SHA1" || -z "$SHA256" ]]; then
-            echo "::error::Could not extract both APK certificate fingerprints."
-            exit 1
-          fi
-          echo "APK certificate SHA-1: $SHA1"
-          echo "APK certificate SHA-256: $SHA256"
+          AAPT2="$BUILD_TOOLS/aapt2"
+          # SHA-1 fingerprints registered for Google Sign-In in google-services.json
+          REGISTERED="$(jq -r '.client[] | select(.client_info.android_client_info.package_name == "in.cit.smartattendance") | .oauth_client[]? | .android_info.certificate_hash // empty' android/app/google-services.json | tr 'A-F' 'a-f' | sort -u)"
 
-          VERIFIED_SHA256="$(sha256sum "$ARTIFACT_APK" | awk '{print $1}')"
-          if [[ "$VERIFIED_SHA256" != "$ARTIFACT_SHA256" ]]; then
-            echo "::error::The uploaded APK changed after its signing fingerprints were verified."
-            exit 1
-          fi
-          echo "Verified APK file SHA-256: $VERIFIED_SHA256"
+          {
+            echo "## APK build report"
+            echo ""
+            echo "| APK | Size (MB) | Package | Min Android SDK | Signed with registered CI key? |"
+            echo "|---|---|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          for SRC in "${!NAMES[@]}"; do
+            APK="$OUT/$SRC"
+            if [[ ! -f "$APK" ]]; then
+              echo "::error::Expected APK $APK was not produced."
+              exit 1
+            fi
+            PKG="$("$AAPT2" dump badging "$APK" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")"
+            MINSDK="$("$AAPT2" dump badging "$APK" | sed -n "s/^minSdkVersion:'\([^']*\)'.*/\1/p")"
+            if [[ "$PKG" != "in.cit.smartattendance" ]]; then
+              echo "::error::$SRC has package '$PKG', expected in.cit.smartattendance."
+              exit 1
+            fi
+            if ! "$APKSIGNER" verify --print-certs "$APK" > "$RUNNER_TEMP/signer.txt"; then
+              echo "::error::$SRC failed signature verification."
+              exit 1
+            fi
+            SHA1="$(grep -m1 'certificate SHA-1 digest:' "$RUNNER_TEMP/signer.txt" | awk '{print $NF}' | tr 'A-F' 'a-f')"
+            if [[ ! "$SHA1" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error::Could not read a valid signing certificate SHA-1 from $SRC."
+              exit 1
+            fi
+            # Must be signed with exactly the staged CI debug key, and that key
+            # must be registered in Firebase. Anything else fails the build, so
+            # a wrongly signed APK is never uploaded.
+            if [[ "$SHA1" != "${CI_DEBUG_CERT_SHA1:-}" ]]; then
+              echo "::error::$SRC is signed with SHA-1 $SHA1, not the CI debug key (${CI_DEBUG_CERT_SHA1:-unknown})."
+              exit 1
+            fi
+            if ! grep -qx "$SHA1" <<< "$REGISTERED"; then
+              echo "::error::$SRC is signed with SHA-1 $SHA1, which is not registered in Firebase. Google Sign-In would fail."
+              exit 1
+            fi
+            KEYOK="yes ($SHA1)"
+            SIZE_MB="$(awk "BEGIN {printf \"%.1f\", $(stat -c%s "$APK")/1048576}")"
+            echo "| ${NAMES[$SRC]} | $SIZE_MB | $PKG | $MINSDK | $KEYOK |" >> "$GITHUB_STEP_SUMMARY"
+            cp "$APK" "dist/${NAMES[$SRC]}"
+          done
+
+          # 'head' below stops reading early; that is expected, so relax pipefail here.
+          set +o pipefail
+          {
+            echo ""
+            echo "### Largest files inside the 64-bit release APK"
+            echo '```'
+            unzip -l "$OUT/app-arm64-v8a-release.apk" | sed '1,3d;$d' | sed '$d' | sort -k1,1 -n -r | head -n 15 \
+              | awk '{printf "%8.1f MB  %s\n", $1/1048576, $4}'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          (cd dist && sha256sum *.apk > SHA256SUMS.txt)
+          cat "$GITHUB_STEP_SUMMARY"
 
       - name: Remove CI debug signing material
         if: always()
-        run: rm -f "$RUNNER_TEMP/smart-attendance-ci-debug.jks" "$RUNNER_TEMP/smart-attendance-apksigner.txt"
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/smart-attendance-ci-debug.jks" "$RUNNER_TEMP/ci-debug-cert.txt" "$RUNNER_TEMP/signer.txt"
+          # Gradle's signing-config intermediates can contain the passwords.
+          if [[ -d build ]]; then
+            find build -path '*intermediates*' -iname '*signing*config*' -prune -exec rm -rf {} + 2>/dev/null || true
+          fi
+          echo "CI signing material removed."
 
-      - name: Upload APK
+      - name: Upload APK for phone testing (64-bit release, recommended)
         uses: actions/upload-artifact@v4
         with:
-          name: SmartAttendance-Debug-APK
-          path: dist/SmartAttendance-Debug-APK.apk
+          name: SmartAttendance-PHONE-INSTALL-arm64
+          path: |
+            dist/SmartAttendance-release-arm64.apk
+            dist/SHA256SUMS.txt
+          retention-days: 30
+
+      - name: Upload other APKs (debug build, older 32-bit phones)
+        uses: actions/upload-artifact@v4
+        with:
+          name: SmartAttendance-other-APKs
+          path: |
+            dist/SmartAttendance-debug-arm64.apk
+            dist/SmartAttendance-release-arm32-older-phones.apk
           retention-days: 30
