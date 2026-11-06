@@ -4,7 +4,7 @@ import '../../core/theme.dart';
 import '../../core/ui.dart';
 import '../../services/auth_service.dart';
 import '../../services/db.dart';
-import '../../services/location_service.dart';
+import '../../services/tracking_service.dart';
 import '../../services/models.dart';
 import '../shell.dart';
 import 'login_screen.dart';
@@ -21,7 +21,7 @@ class AuthGate extends StatelessWidget {
         if (snap.connectionState == ConnectionState.waiting) return const Scaffold(body: LoadingView());
         final user = snap.data;
         if (user == null) {
-          LiveTracker.stop();
+          TrackingService.cancelLocal();
           return const LoginScreen();
         }
         return _ProfileGate(user: user, key: ValueKey(user.uid));
@@ -88,13 +88,15 @@ class _Blocked extends StatelessWidget {
             child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
               Icon(me.status == 'pending_approval' ? Icons.hourglass_top : Icons.lock_person_outlined, size: 64, color: me.status == 'pending_approval' ? AppColors.warning : AppColors.danger),
               const SizedBox(height: 16),
-              Text(me.status == 'pending_approval' ? 'Awaiting approval' : 'Account ${me.status}',
+              Text(me.status == 'pending_approval' ? 'Finishing account setup' : 'Account ${me.status}',
                   style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
               const SizedBox(height: 10),
               Text(
                 me.status == 'pending_approval'
-                    ? 'Your account (${me.email}) was created. An administrator or supervisor must approve it and assign your role before you can use the app. This screen updates automatically.'
-                    : 'Your account is not active. Please contact your administrator.',
+                    ? 'Your account (${me.email}) was created, but it could not be activated yet. '
+                        'This usually means the latest security rules have not been published. '
+                        'Please tell your administrator. This screen updates automatically.'
+                    : 'Your account has been ${me.status} by an administrator. Please contact your administrator.',
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 24),

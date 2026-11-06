@@ -5,6 +5,7 @@ import '../core/ui.dart';
 import '../services/db.dart';
 import '../services/models.dart';
 import 'admin/dashboard_screen.dart';
+import 'admin/coverage_screen.dart';
 import 'admin/live_map_screen.dart';
 import 'admin/more_screen.dart';
 import 'admin/reports_screen.dart';
@@ -103,7 +104,8 @@ class _ShellState extends State<Shell> {
       case Roles.auditor:
         return [
           _Tab('Dashboard', Icons.space_dashboard_outlined, Icons.space_dashboard, DashboardScreen(me: me)),
-          _Tab('Map', Icons.map_outlined, Icons.map, LiveMapScreen(me: me)),
+          // Auditors review history and coverage; they have no live-location map.
+          _Tab('Coverage', Icons.grid_view_outlined, Icons.grid_view, CoverageScreen(me: me)),
           _Tab('Reports', Icons.insights_outlined, Icons.insights, ReportsScreen(me: me)),
           _Tab('Audit', Icons.policy_outlined, Icons.policy, AuditScreen(me: me)),
           _Tab('Profile', Icons.person_outline, Icons.person, ProfileScreen(me: me)),

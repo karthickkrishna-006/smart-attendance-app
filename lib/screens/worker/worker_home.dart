@@ -9,7 +9,9 @@ import '../../core/ui.dart';
 import '../../services/db.dart';
 import '../../services/location_service.dart';
 import '../../services/models.dart';
+import '../../services/tracking_service.dart';
 import 'check_flow_screen.dart';
+import 'duty_card.dart';
 import 'face_enroll_screen.dart';
 
 class WorkerHome extends StatefulWidget {
@@ -22,18 +24,17 @@ class WorkerHome extends StatefulWidget {
 class _WorkerHomeState extends State<WorkerHome> {
   String get _today => dayKey(DateTime.now());
 
-  void _syncTracking(Doc? att) {
-    final onDuty = att != null && att['checkIn'] != null && att['checkOut'] == null;
-    if (onDuty && !LiveTracker.running) {
-      LiveTracker.start(widget.me);
-    } else if (!onDuty && LiveTracker.running) {
-      LiveTracker.stop(markOffDuty: true);
-    }
+  @override
+  void initState() {
+    super.initState();
+    // Continue today's duty if the app was closed while on duty.
+    TrackingService.resume(widget.me);
   }
 
   @override
   Widget build(BuildContext context) {
     final me = widget.me;
+    TrackingService.refreshProfile(me);
     final hour = DateTime.now().hour;
     final greet = hour < 12 ? 'Good morning' : (hour < 17 ? 'Good afternoon' : 'Good evening');
     return Scaffold(
@@ -41,7 +42,6 @@ class _WorkerHomeState extends State<WorkerHome> {
         stream: Db.col('attendance').doc('${me.uid}_$_today').snapshots(),
         builder: (context, snap) {
           final att = snap.data?.data();
-          WidgetsBinding.instance.addPostFrameCallback((_) => _syncTracking(att));
           return CustomScrollView(slivers: [
             SliverToBoxAdapter(
               child: Container(
@@ -60,16 +60,20 @@ class _WorkerHomeState extends State<WorkerHome> {
                         Text(me.name, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700)),
                       ]),
                     ),
-                    if (LiveTracker.running)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                        decoration: BoxDecoration(color: AppColors.success, borderRadius: BorderRadius.circular(20)),
-                        child: const Row(children: [
-                          Icon(Icons.gps_fixed, color: Colors.white, size: 14),
-                          SizedBox(width: 4),
-                          Text('On duty', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
-                        ]),
-                      ),
+                    ValueListenableBuilder<DutyState?>(
+                      valueListenable: TrackingService.state,
+                      builder: (context, duty, _) => duty == null
+                          ? const SizedBox.shrink()
+                          : Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                              decoration: BoxDecoration(color: AppColors.success, borderRadius: BorderRadius.circular(20)),
+                              child: const Row(children: [
+                                Icon(Icons.gps_fixed, color: Colors.white, size: 14),
+                                SizedBox(width: 4),
+                                Text('On duty', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
+                              ]),
+                            ),
+                    ),
                   ]),
                   const SizedBox(height: 18),
                   Text(fmtDate(DateTime.now()), style: const TextStyle(color: Colors.white70)),
@@ -86,7 +90,9 @@ class _WorkerHomeState extends State<WorkerHome> {
               sliver: SliverList(
                 delegate: SliverChildListDelegate([
                   if (!me.faceEnrolled) _enrollBanner(context),
+                  if (me.boundaryId == null || me.boundaryId!.isEmpty) _noAreaBanner(),
                   _attendanceCard(context, att),
+                  DutyCard(me: me),
                   const SectionTitle('My assigned area'),
                   _AreaCard(me: me),
                   const SectionTitle('Today at a glance'),
@@ -99,6 +105,18 @@ class _WorkerHomeState extends State<WorkerHome> {
       ),
     );
   }
+
+  Widget _noAreaBanner() => Padding(
+        padding: const EdgeInsets.only(bottom: 14),
+        child: Card(
+          color: AppColors.warning.withValues(alpha: 0.08),
+          child: const ListTile(
+            leading: Icon(Icons.location_off_outlined, color: AppColors.warning, size: 32),
+            title: Text('Work area not assigned yet', style: TextStyle(fontWeight: FontWeight.w700)),
+            subtitle: Text('You can mark attendance now. It will be checked by your supervisor until your panchayat is assigned.'),
+          ),
+        ),
+      );
 
   Widget _enrollBanner(BuildContext context) => Padding(
         padding: const EdgeInsets.only(bottom: 14),

@@ -23,6 +23,10 @@ class Db {
     'requireFace': true,
     'requireBoundary': true,
     'trackingIntervalSec': 30,
+    // Field-duty history: save a point after moving this far, or after this
+    // long without one (fewer points = less battery and database use).
+    'trackMinDistanceM': 50,
+    'trackHeartbeatSec': 300,
     // Photo evidence needs Cloud Storage for Firebase, which requires the
     // Blaze (pay-as-you-go) plan. Off by default so the app works on Spark.
     'evidenceStorageEnabled': false,
@@ -79,6 +83,25 @@ class Db {
     final d = await col('boundaries').doc(id).get();
     if (!d.exists) return null;
     return Boundary(d.id, {...d.data()!, 'id': d.id});
+  }
+
+  // ---------------- Tracking data scope ----------------
+  /// Builds a query on tracking data that the security rules will accept for
+  /// this person:
+  ///  * Administrator: the whole district.
+  ///  * Supervisor: only workers assigned to them (`supervisorId`).
+  ///  * Field worker: only their own records.
+  ///  * Auditor: duty summaries (`tracking_sessions`) only; no live positions
+  ///    or movement history, so this returns null for those.
+  /// [workerUid] narrows the query to one worker.
+  static Query<Map<String, dynamic>>? trackingQuery(String collection, AppUser me, {String? workerUid}) {
+    final summariesOnly = collection == 'tracking_sessions';
+    if (me.role == Roles.auditor && !summariesOnly) return null;
+    Query<Map<String, dynamic>> q = col(collection);
+    if (me.role == Roles.supervisor) q = q.where('supervisorId', isEqualTo: me.uid);
+    final target = me.role == Roles.worker ? me.uid : workerUid;
+    if (target != null) q = q.where('uid', isEqualTo: target);
+    return q;
   }
 
   // ---------------- Audit trail ----------------

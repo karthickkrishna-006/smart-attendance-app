@@ -99,3 +99,183 @@ Nothing in this revision has been compiled or run (see `docs/STATUS.md`).
 ## Not yet verified
 - Compilation, `flutter analyze`, unit tests, rules tests and APK sizes are verified by the first GitHub Actions run. Device testing is still required.
 - In the development environment, the changed Dart files were parse-checked with the Dart SDK, the workflow YAML was validated, and the APK verification script was dry-run with stand-in tools.
+
+# Revision 5: workers can use the app immediately (no approval step)
+
+Requested change: new workers must reach the worker dashboard straight after signing in, without waiting for an administrator.
+
+## Security rules (`firestore.rules`): needs publishing in the Firebase console
+- Self sign-up may now create the profile with status `active` (still always role `worker`, empty employee ID, own email only). `pending_approval` is still accepted so older app versions keep working.
+- New rule: a Field Worker whose profile is `pending_approval` may change **only** its own `status`, **only** to `active`. Inactive/suspended accounts (blocked by an admin), and pending supervisor/admin records, cannot use this.
+- Unchanged: nobody can give themselves admin/supervisor/auditor; workers can only read their own data; admin bootstrap is unchanged.
+
+## App
+- `lib/services/auth_service.dart`: new profiles are created `active`. If the deployed rules are still the old ones, it falls back to `pending_approval`, so registration never breaks whichever is published first. Older pending worker accounts activate themselves on sign-in (`_activateLegacyPending`). The Revision 4 single-flight fix is unchanged.
+- `lib/screens/auth/auth_gate.dart`: the "Awaiting approval" screen is gone from the normal flow. A pending screen only appears if the new rules are not yet published, and says so. Inactive/suspended accounts still see a blocked screen.
+- `lib/screens/admin/worker_edit_screen.dart`: "Pending approval" is no longer offered as a status (only shown for older accounts that have it). Use Inactive or Suspended to block someone.
+- `lib/screens/worker/worker_home.dart`: new "Work area not assigned yet" notice for workers without a panchayat.
+
+## Tests (`tests/rules/rules.test.mjs`)
+- Updated: self sign-up as an active worker succeeds; choosing admin/supervisor role, suspended status, an employee ID, another email, or another user's profile fails.
+- New: older app versions can still create a pending account; a pending worker can activate itself but cannot change its role or boundary or activate someone else; suspended/inactive accounts and pending supervisors cannot self-activate; suspended workers cannot read settings or write attendance.
+
+## Workflows
+- The Revision 4 workflow files did not reach the repository (GitHub's web uploader skipped the `.github` folder). They are included again unchanged.
+
+## Not yet verified
+- Rules tests, compilation and APK build run in GitHub Actions. Device testing is still required. The new rules must be published by the project owner.
+
+# Revision 6: security-rules review for tracking and photo evidence
+
+No rules have been published. The project owner reviews and publishes them.
+
+## Checked against the code
+- Collections used by the app: `users`, `face_templates`, `boundaries`, `settings` (only `settings/config`), `meta` (only `meta/bootstrap`), `attendance`, `verifications`, `locations`, `tasks`, `activities`, `alerts`, `audit_logs`. Every one has a rule; there are no sub-collections.
+- `tracking_sessions`, `worker_location_updates` and `panchayat_coverage` are **not used anywhere in the code**. They stay denied by the final "deny everything else" rule. Proposed rules for them are kept as a separate draft, to be added together with the tracking code.
+- The camera/activity form opens only from a worker's assigned task, so the rule requiring an assigned task matches the current workflow.
+
+## `firestore.rules`
+- `locations/{uid}` (latest position only; no history is stored):
+  - workers may only write their own document, with only the fields LiveTracker sends;
+  - `uid` must match;
+  - latitude and longitude must be in range;
+  - the boundary must be the worker's own assigned boundary;
+  - the time must be server time; no synthetic flag;
+  - auditors stay read-only, and workers still cannot read anyone else's position.
+- `activities` (photo evidence metadata):
+  - workers may only send the fields the activity form sends, so review fields such as `reviewedAt` can no longer be injected;
+  - `images` may contain only the worker's own photo paths for this activity (`evidence/{uid}/{activityId}/0|1|2.jpg`, in order), so another worker's or another activity's photos cannot be attached;
+  - `taskId` must be a string.
+- Nothing was loosened. Revision 5 (immediate worker access, self-activation of older pending accounts) and the admin bootstrap are unchanged.
+
+## Tests (`tests/rules/rules.test.mjs`, now 22 tests)
+- New live-location tests:
+  - workers cannot write another worker's point, a mismatched uid, a fake boundary, the synthetic flag, an impossible latitude, unexpected fields, or a client timestamp;
+  - the off-duty merge write succeeds;
+  - a blocked account cannot write;
+  - workers cannot read or list other workers' positions;
+  - admins and auditors can read, and auditors cannot write.
+- New evidence tests:
+  - an activity with its own photos, or with no photos, succeeds;
+  - another worker's photo, another activity's photo, wrong order, more than 3 photos, review fields, a non-list `images`, or someone else's task all fail;
+  - other workers cannot read the activity.
+
+## Not yet verified
+- The rules tests have not run yet (the Firebase emulator is not reachable from the development environment). They run in GitHub Actions.
+
+# Revision 7: field-duty tracking (sessions, background GPS, routes, coverage)
+
+Approved access policy:
+- **Admin:** whole district.
+- **Supervisor:** assigned workers only.
+- **Auditor:** duty summaries and coverage reports only, with no live positions or routes.
+- **Worker:** own data only.
+
+No rules have been published.
+
+## How it works
+- **Start / stop field duty** (`lib/screens/worker/duty_card.dart`):
+  - The worker reads what is recorded and who can see it, agrees, and starts duty.
+  - The card shows elapsed time, distance, points saved and % of time in the assigned area.
+  - Duty ends with *Stop duty*, check-out or sign-out.
+  - Tracking is **no longer started automatically at check-in**.
+- **Background GPS with a visible notification** (`LocationService.dutyStream`):
+  - A geolocator Android foreground service with a permanent "Field duty in progress" notification.
+  - Android 13+ asks for notification permission (`MainActivity.java` channel).
+  - New manifest permissions: `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_LOCATION`, `POST_NOTIFICATIONS`, `WAKE_LOCK`.
+  - `ACCESS_BACKGROUND_LOCATION` is not requested.
+- **Session records** (`tracking_sessions`, `lib/services/tracking_service.dart`):
+  - One record per duty period, holding owner, date, panchayat, supervisor, consent, start/end, end reason and running totals.
+  - Today's session resumes if the app is reopened.
+  - Sessions left open on earlier days are closed automatically.
+- **Location history** (`worker_location_updates`):
+  - A point is saved after moving 50 m, after 5 minutes, or when inside/outside changes (both adjustable by admins in Settings).
+  - Each save is one batch: history point + live position (+ session totals every 10 points).
+  - Writes queue on the phone when offline and upload later.
+- **Route visualisation** (`lib/screens/common/route_screen.dart`):
+  - A day picker; each session as a coloured line, with start/stop markers, activity photo markers (tap to open the activity) and the assigned boundary.
+  - Opened from: the worker's *My route*, worker profile, and the live-map pop-up.
+  - Auditors see duty summaries without the map.
+- **Activity-linked GPS and photos** (`activity_form.dart`):
+  - The activity, task status and an `activity` history point (with `activityId` and `sessionId`) are written in one batch.
+- **Admin live map / dashboard:**
+  - Role-scoped queries: admin = all; supervisor = `supervisorId == me`; auditor = no live positions.
+  - "Today's route" button on each worker.
+  - `LiveQueries` accepts `null` for data a role may not read.
+- **Panchayat-wise coverage** (`lib/screens/admin/coverage_screen.dart`):
+  - Per-day panchayats covered, workers, km, % time in area, with block and covered/not-covered filters.
+  - Admins save the day to `panchayat_coverage`.
+  - Auditors get a *Coverage* tab instead of the live map.
+- **Synthetic demo data** (`demo_seed.dart`):
+  - 3 days of walked routes per demo worker; one worker drifts outside the boundary.
+  - All labelled synthetic and removed by *Clear demo data*.
+
+## `firestore.rules`
+- New: `tracking_sessions`, `worker_location_updates`, `panchayat_coverage`.
+  - Field lists match the code exactly (checked by script).
+  - Workers can only start their own session (today, own area, own supervisor, consent recorded).
+  - Totals can never decrease; a session can be ended once and never reopened.
+  - Route points go only into the worker's own *active* session, copying its area, supervisor and date.
+  - Activity points are only accepted together with the worker's own activity.
+  - History is never edited.
+- `locations`:
+  - Read: admin all, supervisor own workers, worker self; **auditors no longer have access**.
+  - Workers cannot claim another supervisor.
+  - Writes other than the worker's own are admin synthetic-demo only (supervisors can no longer write positions).
+- `activities`: also accepts `mocked` and `sessionId`.
+
+## Tests
+- `tests/rules/rules.test.mjs` now has 29 tests.
+- New tests cover: session start/totals/ending/stale-close; route points (wrong session, worker, area, supervisor, date, latitude, kind, client time; editing; after the session ended); activity points; who can read history and sessions (worker, supervisor in and out of area, auditor, admin); coverage reports.
+- The live-location read test was updated for the auditor change.
+
+## Not yet verified
+- Flutter compile/analyze, `MainActivity.java` compilation, the rules tests and the APK build run only in GitHub Actions.
+- Background tracking, the notification and battery use must be tested on a real phone.
+- Known limit: if the worker swipes the app away, Android stops tracking. The session resumes when the app is reopened that day; otherwise it is closed the next day.
+
+# Revision 8: review fixes for Revisions 5–7
+
+1. **Stop-duty race fixed** (`lib/services/tracking_service.dart`):
+   - The final route point is awaited, then the session is closed. Firestore sends one phone's writes in order, so the close can never reach the server before the final point.
+   - Every write has a real outcome: `saved` (server confirmed), `queued` (no reply within 15 s; kept on the phone and uploaded later), or `failed` (with the reason).
+   - `stopDuty()` returns a `StopResult`. The duty card and check-out only say "route saved" when the server confirmed it; otherwise they say exactly what happened (waiting for internet, final point failed, N points failed, record not closed).
+   - Failed background points are counted and shown on the duty card instead of being only logged.
+   - If closing the session fails, the app retries the close on next open instead of resuming tracking the worker had stopped.
+2. **Notification permission** (`MainActivity.java`, `duty_card.dart`):
+   - The native side now replies only after the worker answers the Android 13+ dialog (`onRequestPermissionsResult`).
+   - It also reports `false` when notifications are switched off in settings.
+   - No request is left hanging if the activity closes.
+   - If notifications are off, the worker is told the notification may not appear and chooses *Open settings*, *Cancel* or *Start anyway*.
+   - Consent text and comments no longer promise the notification is always visible.
+3. **Admin email**:
+   - `firestore.rules` now contains `krish.sep2006@gmail.com`.
+   - The rules tests use the same address and stop with an error if the two ever differ.
+   - The docs were updated.
+4. **Registration details** (`lib/services/pending_details.dart`, `auth_service.dart`):
+   - The single global `_pendingDetails` slot is replaced by a store keyed by normalised e-mail. One account's name/phone can no longer be written into another account's profile when sign-ins overlap.
+   - Entries are used once, cleared when account creation fails, kept for a retry if profile creation fails, and expire after 10 minutes.
+   - New unit test: `test/pending_details_test.dart`.
+5. **Rules vs code**:
+   - Writes: re-checked by script, all 10 write paths match.
+   - Reads: every tracking/location/coverage query was checked against the rule that allows it (see the Revision 8 report).
+6. **CI test report**: `build-debug-apk.yml` now writes a *Test report* to the build summary, even when a step fails:
+   - rules tests passed/failed counts, with the names of failing tests;
+   - the `flutter analyze` result and issues;
+   - the `flutter test` result.
+
+# Revision 9: CI signing integration (test builds)
+
+Reviewed `android/app/build.gradle` and `.github/workflows/build-debug-apk.yml` together.
+
+**Finding:** `build.gradle` on GitHub (`559712a`) already reads `CI_DEBUG_KEYSTORE_PATH/_PASSWORD/_KEY_ALIAS/_KEY_PASSWORD` into a separate `ciDebug` signing config, used for debug builds and for release builds when no `key.properties` exists. Test builds intentionally do **not** use `key.properties`: in this project its presence means "official production signing".
+
+Gaps fixed:
+- **`build.gradle`:** new `CI_REQUIRE_CI_DEBUG_SIGNING=true` (set by the test workflow) stops the build if the CI key is missing or blank, instead of silently signing with Android's default debug key.
+- **`build-debug-apk.yml`:**
+  - **New guard step:** fails if `android/key.properties` or `android/app/release.jks` exist (production material), or if `build.gradle` does not read the CI signing variables (catches an outdated `build.gradle`).
+  - **Staging step validates before building:** the four secrets are present; the keystore, alias and store password open; the key password opens the key; and the key's SHA-1 is registered for `in.cit.smartattendance` in `google-services.json`, otherwise the build stops. Passwords reach `keytool` only through environment variables (`-storepass:env`, `-keypass:env`), never the command line. No `keytool` output is printed. The keystore is created with owner-only permissions.
+  - **APK check now fails instead of warning:** each APK must be signed with exactly the staged CI key (and that key must be registered), with a valid SHA-1 and passing `apksigner verify`. Otherwise the build fails and nothing is uploaded.
+  - **Cleanup (`if: always()`):** also removes the certificate dumps and Gradle's signing-config intermediates.
+- **`build-apk.yml` (production) is unchanged:** it still writes `key.properties` from the production secrets, verifies the production SHA-1, and deletes the key in an `if: always()` step.
+- **`docs/GITHUB_UPLOAD_AND_BUILD.md`:** the steps for registering the debug SHA-1 are corrected, and the new error messages are explained.

@@ -7,6 +7,7 @@ import 'activities_review_screen.dart';
 import 'attendance_admin_screen.dart';
 import 'audit_screen.dart';
 import 'boundaries_screen.dart';
+import 'coverage_screen.dart';
 import 'reports_screen.dart';
 import 'settings_screen.dart';
 
@@ -20,6 +21,7 @@ class MoreScreen extends StatelessWidget {
       (Icons.how_to_reg_outlined, 'Attendance register', 'Daily records, review & override', AppColors.success, AttendanceAdminScreen(me: me)),
       (Icons.fact_check_outlined, 'Field activity review', 'Approve or reject submissions', AppColors.teal, ActivitiesReviewScreen(me: me)),
       (Icons.notifications_active_outlined, 'Alerts', 'Open, critical and resolved alerts', AppColors.danger, AlertsScreen(me: me)),
+      (Icons.grid_view_outlined, 'Field coverage', 'Panchayat-wise duty coverage by day', AppColors.success, CoverageScreen(me: me)),
       (Icons.polyline_outlined, 'GIS boundaries', 'Draw, import & assign boundaries', AppColors.demo, BoundariesScreen(me: me)),
       (Icons.insights_outlined, 'Reports & analytics', 'Date / worker / location filters', AppColors.info, ReportsScreen(me: me)),
       (Icons.policy_outlined, 'Audit trail', 'Administrative action log', AppColors.navy, AuditScreen(me: me)),

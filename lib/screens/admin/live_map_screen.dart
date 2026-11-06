@@ -9,6 +9,7 @@ import '../../core/ui.dart';
 import '../../services/db.dart';
 import '../../services/location_service.dart';
 import '../../services/models.dart';
+import '../common/route_screen.dart';
 import 'boundaries_screen.dart';
 import 'worker_detail_screen.dart';
 
@@ -85,17 +86,34 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
           InfoRow(Icons.update, 'Last update', '${fmtDateTime(l['updatedAt'])} (${ago(l['updatedAt'])})'),
           if (l['mocked'] == true) const InfoRow(Icons.gpp_bad_outlined, 'Warning', 'Mock location detected', color: AppColors.danger),
           const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: () {
-                Navigator.pop(c);
-                Navigator.push(context, MaterialPageRoute(builder: (_) => WorkerDetailScreen(uid: l['id'], me: widget.me)));
-              },
-              icon: const Icon(Icons.person_search_outlined),
-              label: const Text('Open worker profile'),
+          Row(children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.pop(c);
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => WorkerDetailScreen(uid: l['id'], me: widget.me)));
+                },
+                icon: const Icon(Icons.person_search_outlined),
+                label: const Text('Profile'),
+              ),
             ),
-          ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: () {
+                  Navigator.pop(c);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => RouteScreen(me: widget.me, workerUid: l['id'] as String, workerName: (l['name'] ?? 'Worker').toString()),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.route_outlined),
+                label: const Text("Today's route"),
+              ),
+            ),
+          ]),
         ]),
       ),
     );
@@ -105,7 +123,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Live GIS map'),
+        title: Text(widget.me.role == Roles.supervisor ? 'Live map · my workers' : 'Live GIS map'),
         automaticallyImplyLeading: widget.standalone,
         actions: [
           if (widget.me.isStaff)
@@ -117,7 +135,9 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
         ],
       ),
       body: LiveQueries(
-        queries: [Db.col('locations'), Db.col('boundaries')],
+        // Admin: whole district. Supervisor: only their assigned workers.
+        // Auditor: no live positions (null query = empty), boundaries only.
+        queries: [Db.trackingQuery('locations', widget.me), Db.col('boundaries')],
         builder: (context, d) {
           final locs = d[0].where((l) => l['lat'] != null && l['lng'] != null).toList();
           final boundaries = d[1].map(Boundary.fromDoc).where((b) => b.points.length >= 3).toList();

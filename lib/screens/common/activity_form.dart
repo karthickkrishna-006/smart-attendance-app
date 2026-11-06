@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:latlong2/latlong.dart';
+import '../../core/fmt.dart';
 import '../../core/geo.dart';
 import '../../core/theme.dart';
 import '../../core/ui.dart';
@@ -13,6 +14,7 @@ import '../../services/db.dart';
 import '../../services/evidence_storage.dart';
 import '../../services/location_service.dart';
 import '../../services/models.dart';
+import '../../services/tracking_service.dart';
 
 /// Field activity / visit submission with GPS stamp and image evidence.
 /// Images are compressed on-device (max 1280 px JPEG, < 1.5 MB) and uploaded
@@ -124,7 +126,9 @@ class _ActivityFormState extends State<ActivityForm> {
       } else if (current == 'assigned') {
         next = 'in_progress';
       }
-      // Activity and task status are written together: both succeed or neither.
+      // Activity, task status and the activity's GPS point are written
+      // together: all succeed or none.
+      final sessionId = TrackingService.state.value?.sessionId;
       final batch = Db.fs.batch();
       batch.set(ref, {
         'taskId': widget.task['id'],
@@ -138,11 +142,38 @@ class _ActivityFormState extends State<ActivityForm> {
         'lng': _pos?.longitude,
         'accuracy': _pos?.accuracy,
         'geoStatus': _geo?.status ?? 'unavailable',
+        'mocked': _pos?.isMocked ?? false,
+        'sessionId': sessionId,
         'images': paths, // Cloud Storage object paths only
         'reviewStatus': 'pending',
         'synthetic': false,
         'createdAt': FieldValue.serverTimestamp(),
       });
+      // The place where the photos were taken joins the worker's movement
+      // history, so it appears as a camera marker on the route map.
+      final pos = _pos;
+      if (pos != null && widget.me.role == Roles.worker) {
+        final edge = _geo?.distanceToEdge;
+        batch.set(Db.col('worker_location_updates').doc(), {
+          'uid': widget.me.uid,
+          'sessionId': sessionId,
+          'supervisorId': widget.me.supervisorId,
+          'boundaryId': widget.me.boundaryId,
+          'date': dayKey(DateTime.now()),
+          'kind': 'activity',
+          'activityId': ref.id,
+          'lat': pos.latitude,
+          'lng': pos.longitude,
+          'accuracy': pos.accuracy,
+          'speed': null,
+          'mocked': pos.isMocked,
+          'geoStatus': _geo?.status ?? 'unavailable',
+          'distanceToEdge': (edge != null && edge.isFinite) ? double.parse(edge.toStringAsFixed(1)) : null,
+          'gpsTime': Timestamp.fromDate(pos.timestamp),
+          'synthetic': false,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      }
       if (next != null) {
         batch.update(Db.col('tasks').doc(widget.task['id']), {
           'status': next,

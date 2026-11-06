@@ -14,6 +14,7 @@ import '../../services/db.dart';
 import '../../services/face_service.dart';
 import '../../services/location_service.dart';
 import '../../services/models.dart';
+import '../../services/tracking_service.dart';
 import 'face_enroll_screen.dart';
 
 /// Check-in / check-out workflow: GPS fix → GIS boundary validation →
@@ -208,7 +209,13 @@ class _CheckFlowScreenState extends State<CheckFlowScreen> {
       });
       if (widget.checkOut) {
         await ref.set({'checkOut': point, 'updatedAt': FieldValue.serverTimestamp()}, SetOptions(merge: true));
-        await LiveTracker.stop(markOffDuty: true);
+        // Checking out also ends field duty (tracking stops, notification goes away).
+        if (TrackingService.onDuty) {
+          final r = await TrackingService.stopDuty(reason: 'checked_out');
+          if (mounted && (r.sessionClosed == WriteOutcome.failed || r.finalPoint == WriteOutcome.failed || r.failedPoints > 0)) {
+            showSnack(context, 'Checked out, but part of today\'s route could not be saved. Open My route to review.', error: true);
+          }
+        }
       } else {
         var status = _computeStatus();
         Map<String, dynamic> record(String st) => {
@@ -237,7 +244,8 @@ class _CheckFlowScreenState extends State<CheckFlowScreen> {
         if (status == 'late' && Db.ruleOn(s, 'late_checkin')) {
           await Db.raiseAlert(type: 'late_checkin', description: '${me.name} checked in late at ${fmtTime(DateTime.now())}.', severity: 'medium', uid: me.uid, workerName: me.name, dedupId: 'late_${me.uid}_$today');
         }
-        LiveTracker.start(me);
+        // Tracking is NOT started automatically: the worker starts field duty
+        // themselves from the home screen, after seeing what is recorded.
       }
       // location-based alerts
       if (_geo?.status == 'outside' && Db.ruleOn(s, 'outside_boundary')) {

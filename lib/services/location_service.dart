@@ -1,11 +1,5 @@
 import 'dart:async';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:latlong2/latlong.dart';
-import '../core/fmt.dart';
-import '../core/geo.dart';
-import 'db.dart';
-import 'models.dart';
 
 class LocationException implements Exception {
   final String message;
@@ -54,83 +48,26 @@ class LocationService {
         ),
       );
 
+  /// Position stream for field duty. On Android this runs as a foreground
+  /// service, so tracking continues while the phone is locked or another app
+  /// is open. It posts an ongoing notification, which Android shows only if
+  /// notifications are allowed for the app. It stops when duty is stopped.
+  static Stream<Position> dutyStream({int intervalSec = 30}) => Geolocator.getPositionStream(
+        locationSettings: AndroidSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 0, // TrackingService decides which points to keep
+          intervalDuration: Duration(seconds: intervalSec),
+          foregroundNotificationConfig: const ForegroundNotificationConfig(
+            notificationTitle: 'Field duty in progress',
+            notificationText: 'Smart Attendance is recording your location for field work. Open the app and tap Stop duty to end.',
+            notificationChannelName: 'Field duty tracking',
+            enableWakeLock: true,
+            setOngoing: true,
+          ),
+        ),
+      );
+
   static Future<void> openSettings() => Geolocator.openLocationSettings();
   static Future<void> openAppSettings() => Geolocator.openAppSettings();
 }
 
-/// Streams the on-duty worker's position to `locations/{uid}` while the app is
-/// open (foreground tracking), evaluates the GIS boundary and raises alerts.
-class LiveTracker {
-  static StreamSubscription<Position>? _sub;
-  static String? _uid;
-  static String? _lastStatus;
-
-  static bool get running => _sub != null;
-
-  static Future<void> start(AppUser user) async {
-    if (_sub != null && _uid == user.uid) return;
-    await stop();
-    _uid = user.uid;
-    final settings = await Db.getSettings();
-    final boundary = await Db.getBoundary(user.boundaryId);
-    final maxAcc = asDouble(settings['maxGpsAccuracy'], 50);
-    try {
-      await LocationService.ensurePermission();
-    } catch (_) {
-      return;
-    }
-    _sub = LocationService.stream(intervalSec: (settings['trackingIntervalSec'] as num?)?.toInt() ?? 30).listen((p) async {
-      final ll = LatLng(p.latitude, p.longitude);
-      final g = checkLocation(ll, p.accuracy, boundary?.points, maxAcc);
-      try {
-        await Db.col('locations').doc(user.uid).set({
-          'uid': user.uid,
-          'name': user.name,
-          'lat': p.latitude,
-          'lng': p.longitude,
-          'accuracy': p.accuracy,
-          'mocked': p.isMocked,
-          'geoStatus': g.status,
-          'distanceToEdge': g.distanceToEdge.isFinite ? g.distanceToEdge : null,
-          'boundaryId': user.boundaryId,
-          'onDuty': true,
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-      } catch (_) {}
-      final today = dayKey(DateTime.now());
-      if (g.status == 'outside' && _lastStatus != 'outside' && Db.ruleOn(settings, 'outside_boundary')) {
-        await Db.raiseAlert(
-          type: 'outside_boundary',
-          description: '${user.name} moved outside the assigned boundary (${g.distanceToEdge.toStringAsFixed(0)} m from edge) while on duty.',
-          severity: 'high',
-          uid: user.uid,
-          workerName: user.name,
-          dedupId: 'outside_${user.uid}_${today}_${DateTime.now().hour}',
-        );
-      }
-      if (p.isMocked && Db.ruleOn(settings, 'mock_location')) {
-        await Db.raiseAlert(
-          type: 'mock_location',
-          description: 'Possible GPS spoofing: mock location detected on ${user.name}\'s device.',
-          severity: 'critical',
-          uid: user.uid,
-          workerName: user.name,
-          dedupId: 'mock_${user.uid}_$today',
-        );
-      }
-      _lastStatus = g.status;
-    });
-  }
-
-  static Future<void> stop({bool markOffDuty = false}) async {
-    await _sub?.cancel();
-    _sub = null;
-    if (markOffDuty && _uid != null) {
-      try {
-        await Db.col('locations').doc(_uid).set({'onDuty': false, 'updatedAt': FieldValue.serverTimestamp()}, SetOptions(merge: true));
-      } catch (_) {}
-    }
-    _uid = null;
-    _lastStatus = null;
-  }
-}

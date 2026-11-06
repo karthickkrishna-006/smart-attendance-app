@@ -136,6 +136,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ]),
               ),
+              const SectionTitle('Field-duty tracking'),
+              Card(
+                child: Column(children: [
+                  ListTile(
+                    leading: const Icon(Icons.straighten),
+                    title: Text('Save a route point every ${asDouble(s['trackMinDistanceM'], 50).toStringAsFixed(0)} m moved'),
+                    subtitle: Slider(
+                      value: asDouble(s['trackMinDistanceM'], 50).clamp(20, 200),
+                      min: 20,
+                      max: 200,
+                      divisions: 18,
+                      onChanged: (v) => setState(() => s['trackMinDistanceM'] = v.round()),
+                    ),
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.timer_outlined),
+                    title: Text('…or at least every ${(asDouble(s['trackHeartbeatSec'], 300) / 60).toStringAsFixed(0)} min'),
+                    subtitle: Slider(
+                      value: asDouble(s['trackHeartbeatSec'], 300).clamp(120, 1800),
+                      min: 120,
+                      max: 1800,
+                      divisions: 14,
+                      onChanged: (v) => setState(() => s['trackHeartbeatSec'] = (v / 60).round() * 60),
+                    ),
+                  ),
+                  const ListTile(
+                    dense: true,
+                    leading: Icon(Icons.info_outline),
+                    title: Text('Fewer points use less battery and fewer database writes. Changes apply when a worker next starts duty.'),
+                  ),
+                ]),
+              ),
               const SectionTitle('Evidence storage'),
               Card(
                 child: SwitchListTile(

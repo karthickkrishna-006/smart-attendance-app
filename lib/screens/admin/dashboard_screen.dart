@@ -65,7 +65,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Db.col('alerts'),
           Db.col('boundaries'),
           Db.col('activities').where('reviewStatus', isEqualTo: 'pending'),
-          Db.col('locations'),
+          // Live positions, scoped by role (none for auditors).
+          Db.trackingQuery('locations', widget.me),
         ],
         builder: (context, d) => _body(context, d, day),
       ),

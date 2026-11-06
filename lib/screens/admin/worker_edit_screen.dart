@@ -122,7 +122,10 @@ class _WorkerEditScreenState extends State<WorkerEditScreen> {
               DropdownButtonFormField<String>(
                 value: _status,
                 decoration: const InputDecoration(labelText: 'Account / employment status'),
-                items: const ['pending_approval', 'active', 'inactive', 'suspended']
+                // Workers are active on sign-up. To block someone, use Inactive or
+                // Suspended: a pending worker activates itself on next sign-in.
+                // 'Pending approval' is listed only for older accounts that have it.
+                items: [if (widget.existing?.status == 'pending_approval') 'pending_approval', 'active', 'inactive', 'suspended']
                     .map((s) => DropdownMenuItem(value: s, child: Text(s == 'pending_approval' ? 'Pending approval' : s[0].toUpperCase() + s.substring(1))))
                     .toList(),
                 onChanged: self ? null : (v) => setState(() => _status = v!),

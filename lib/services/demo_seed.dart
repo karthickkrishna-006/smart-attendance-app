@@ -205,13 +205,98 @@ class DemoSeed {
         'date': dayKey(now),
       });
     }
-    await Db.audit('seed_demo_data', 'demo', {'workers': wIds.length, 'boundaries': bIds.length});
-    return 'Created ${bIds.length} boundaries, ${wIds.length} workers, ${titles.length} tasks and 7 days of attendance (all SYNTHETIC).';
+    // Field-duty routes: 3 days of walked routes per active worker, so the live
+    // map, route screen and panchayat coverage can be demonstrated.
+    final routes = await _seedRoutes(rnd, now, wIds, bIds, centers);
+
+    await Db.audit('seed_demo_data', 'demo', {'workers': wIds.length, 'boundaries': bIds.length, 'routes': routes});
+    return 'Created ${bIds.length} boundaries, ${wIds.length} workers, ${titles.length} tasks, 7 days of attendance '
+        'and $routes field-duty routes (all SYNTHETIC).';
+  }
+
+  /// Random walk from the zone centre, sampled every few minutes. Worker C
+  /// (index 2) drifts outside the boundary, to demonstrate alerts.
+  static Future<int> _seedRoutes(math.Random rnd, DateTime now, List<String> wIds, List<String> bIds, List<LatLng> centers) async {
+    int routes = 0;
+    for (int d = 0; d < 3; d++) {
+      final day = now.subtract(Duration(days: d));
+      final date = dayKey(day);
+      for (int i = 0; i < wIds.length - 1; i++) {
+        final c = centers[i % centers.length];
+        final sessionRef = Db.col('tracking_sessions').doc();
+        var start = DateTime(day.year, day.month, day.day, 9, 20 + rnd.nextInt(30));
+        if (d == 0 && start.isAfter(now)) start = now.subtract(const Duration(hours: 2));
+        final n = 18 + rnd.nextInt(14);
+        final drift = i == 2 ? 0.0007 : 0.00025;
+        var lat = c.latitude, lng = c.longitude, dist = 0.0;
+        int inside = 0;
+        final batch = Db.fs.batch();
+        LatLng? prev;
+        DateTime t = start;
+        for (int k = 0; k < n; k++) {
+          lat += (rnd.nextDouble() - 0.5) * 0.0012 + (k > n / 2 ? drift : 0);
+          lng += (rnd.nextDouble() - 0.5) * 0.0012;
+          final p = LatLng(lat, lng);
+          final isInside = i != 2 || k < n / 2;
+          if (isInside) inside++;
+          if (prev != null) dist += const Distance().as(LengthUnit.Meter, prev, p);
+          prev = p;
+          batch.set(Db.col('worker_location_updates').doc(), {
+            'uid': wIds[i],
+            'sessionId': sessionRef.id,
+            'supervisorId': null,
+            'boundaryId': bIds[i % bIds.length],
+            'date': date,
+            'kind': k == 0 ? 'start' : (k == n - 1 ? 'stop' : 'track'),
+            'lat': lat,
+            'lng': lng,
+            'accuracy': 5 + rnd.nextInt(20),
+            'speed': null,
+            'mocked': false,
+            'geoStatus': isInside ? 'inside' : 'outside',
+            'distanceToEdge': null,
+            'gpsTime': Timestamp.fromDate(t),
+            'synthetic': true,
+            'createdAt': Timestamp.fromDate(t),
+          });
+          t = t.add(Duration(minutes: 6 + rnd.nextInt(10)));
+        }
+        final stillOn = d == 0 && i < 3;
+        batch.set(sessionRef, {
+          'uid': wIds[i],
+          'name': _names[i],
+          'date': date,
+          'boundaryId': bIds[i % bIds.length],
+          'supervisorId': null,
+          'status': stillOn ? 'active' : 'ended',
+          'consent': true,
+          'pointCount': n,
+          'insideCount': inside,
+          'distanceM': double.parse(dist.toStringAsFixed(1)),
+          'synthetic': true,
+          'startedAt': Timestamp.fromDate(start),
+          'lastPointAt': Timestamp.fromDate(t),
+          if (!stillOn) 'endedAt': Timestamp.fromDate(t),
+          if (!stillOn) 'endReason': 'stopped_by_worker',
+        });
+        if (d == 0) {
+          batch.set(
+            Db.col('locations').doc(wIds[i]),
+            {'lat': lat, 'lng': lng, 'sessionId': sessionRef.id, 'onDuty': stillOn, 'geoStatus': i == 2 ? 'outside' : 'inside', 'synthetic': true},
+            SetOptions(merge: true),
+          );
+        }
+        await batch.commit();
+        routes++;
+      }
+    }
+    return routes;
   }
 
   static Future<int> clear() async {
     int n = 0;
-    for (final c in ['boundaries', 'users', 'attendance', 'tasks', 'activities', 'alerts', 'locations', 'verifications']) {
+    for (final c in ['boundaries', 'users', 'attendance', 'tasks', 'activities', 'alerts', 'locations', 'verifications',
+                     'tracking_sessions', 'worker_location_updates', 'panchayat_coverage']) {
       final q = await Db.col(c).where('synthetic', isEqualTo: true).get();
       var batch = Db.fs.batch();
       int inBatch = 0;

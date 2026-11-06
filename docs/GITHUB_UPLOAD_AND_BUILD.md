@@ -11,7 +11,7 @@ You don't need Flutter or Android Studio on your computer. GitHub builds the APK
 ---
 
 ## Step 0: Set your admin email (2 minutes)
-Open `firestore.rules` in a text editor (Notepad is fine) and replace `REPLACE_WITH_ADMIN_EMAIL@gmail.com` with **your** Gmail address in lower case. Save. Details are in `docs/SECURITY_SETUP.md`.
+`firestore.rules` already contains the authorised first-admin address (`krish.sep2006@gmail.com`). Nothing to change unless the admin changes; see `docs/SECURITY_SETUP.md`.
 
 ## Step 1: Unzip the project
 Extract the ZIP. You should get a folder `smart-attendance-app/` containing `lib/`, `android/`, `.github/`, `pubspec.yaml`, `README.md` and more.
@@ -130,6 +130,18 @@ For Linux:
 base64 -w0 smartattendance-ci-debug.jks
 ```
 
-After a successful debug build, the workflow prints only the APK certificate SHA-1 and SHA-256 fingerprints, plus the APK file SHA-256 used to verify the uploaded artifact matches the built APK. In Firebase Console, open **Project settings → General → Your apps**, select Android app `in.cit.smartattendance`, and add the CI debug APK's printed **SHA-1** under **SHA certificate fingerprints**. Keep the release certificate SHA-1 registered too. Then open **Authentication → Sign-in method**, confirm Google is enabled and a support email is configured, download the refreshed `google-services.json`, and use that file in the next build.
+Before building, the workflow checks the debug keystore, alias and both passwords, reads the key's **SHA-1** (a public fingerprint, not a secret) and **stops the build** if that SHA-1 is not registered for `in.cit.smartattendance` in `android/app/google-services.json`. The error message shows the SHA-1. To fix it: in Firebase Console open **Project settings → General → Your apps**, select Android app `in.cit.smartattendance`, add that SHA-1 under **SHA certificate fingerprints** (keep the release SHA-1 too), download the refreshed `google-services.json`, replace `android/app/google-services.json` and run the build again.
+
+After the build, every APK is checked again: it must be signed with exactly that CI debug key, or the build fails and no APK is uploaded. Passwords are never printed. The keystore is deleted at the end of every run, including failed runs.
+
+| Debug build error | Meaning / fix |
+|---|---|
+| `Required GitHub Actions secret DEBUG_… is missing or empty` | Add the named secret (table above). |
+| `keystore, key alias or keystore password is invalid` | Check `DEBUG_KEYSTORE_BASE64`, `DEBUG_KEYSTORE_PASSWORD`, `DEBUG_KEY_ALIAS`. |
+| `DEBUG_KEY_PASSWORD does not open the key` | Fix `DEBUG_KEY_PASSWORD`. |
+| `CI debug key's SHA-1 (…) is not registered` | Register that SHA-1 in Firebase and replace `google-services.json` (see above). |
+| `android/key.properties must not exist …` | Delete `android/key.properties` / `android/app/release.jks` from the repository; production signing belongs only to the release workflow. |
+| `build.gradle does not read …` | Upload the current `android/app/build.gradle`. |
+| `… is signed with SHA-1 …, not the CI debug key` | The APK was signed with a different key; the build was stopped and nothing was uploaded. |
 
 Profile access failures also produce a `[profile-diagnostic]` log entry with the operation, Firebase project ID, authenticated UID, `users/{uid}` path, and Firebase error code. It does not log passwords, tokens, email addresses, or exception messages.

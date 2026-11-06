@@ -12,8 +12,12 @@ List<Doc> docsOf(QuerySnapshot<Map<String, dynamic>> s) =>
 
 /// Subscribes to several Firestore queries at once and rebuilds when any of
 /// them changes. Every dashboard number comes from these live snapshots.
+///
+/// A `null` query is treated as an always-empty result. This is used for data
+/// a role is not allowed to read (for example, live positions for auditors),
+/// so one forbidden query cannot break a whole screen.
 class LiveQueries extends StatefulWidget {
-  final List<Query<Map<String, dynamic>>> queries;
+  final List<Query<Map<String, dynamic>>?> queries;
   final Widget Function(BuildContext, List<List<Doc>>) builder;
   final Object? queryKey;
   const LiveQueries({super.key, required this.queries, required this.builder, this.queryKey});
@@ -41,7 +45,12 @@ class _LiveQueriesState extends State<LiveQueries> {
     _data = List.filled(widget.queries.length, null);
     _error = null;
     for (int i = 0; i < widget.queries.length; i++) {
-      _subs.add(widget.queries[i].snapshots().listen((snap) {
+      final q = widget.queries[i];
+      if (q == null) {
+        _data[i] = const <Doc>[];
+        continue;
+      }
+      _subs.add(q.snapshots().listen((snap) {
         if (!mounted) return;
         setState(() => _data[i] = docsOf(snap));
       }, onError: (e) {

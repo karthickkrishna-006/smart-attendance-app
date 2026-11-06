@@ -27,6 +27,12 @@ def ciDebugSigningConfigured = ciDebugSigning.values().every { it != null && !it
 if (ciDebugSigningRequested && !ciDebugSigningConfigured) {
     throw new GradleException("CI debug signing was partially configured; provide all CI debug signing values.")
 }
+// The CI test workflow sets CI_REQUIRE_CI_DEBUG_SIGNING=true so a missing or
+// blank secret stops the build instead of silently signing with Android's
+// default debug key (whose SHA-1 is not registered in Firebase).
+if (System.getenv("CI_REQUIRE_CI_DEBUG_SIGNING") == "true" && !ciDebugSigningConfigured) {
+    throw new GradleException("CI debug signing is required but CI_DEBUG_KEYSTORE_PATH / _PASSWORD / _KEY_ALIAS / _KEY_PASSWORD are not all set.")
+}
 
 android {
     namespace = "in.cit.smartattendance"

@@ -2,8 +2,8 @@ rules_version = '2';
 
 // Smart Attendance – Cloud Firestore security rules
 //
-// BEFORE PUBLISHING: replace the e-mail in bootstrapAdminEmail() with the
-// single Google/Gmail address that is authorised to become the first Admin.
+// The first Administrator can only be the single verified e-mail address in
+// bootstrapAdminEmail(), and only once (meta/bootstrap is write-once).
 // See docs/SECURITY_SETUP.md.
 //
 // Roles (users/{uid}.role): admin | supervisor | worker | auditor
@@ -12,7 +12,7 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // ===================== CONFIGURE ======================================
-    function bootstrapAdminEmail() { return 'REPLACE_WITH_ADMIN_EMAIL@gmail.com'; }
+    function bootstrapAdminEmail() { return 'krish.sep2006@gmail.com'; }
     // =====================================================================
 
     // ---------- identity helpers ----------
@@ -26,6 +26,16 @@ service cloud.firestore {
     function isStaff() { return active() && me().role in ['admin', 'supervisor']; }
     function canViewAll() { return active() && me().role in ['admin', 'supervisor', 'auditor']; }
     function isWorker() { return active() && me().role == 'worker'; }
+    function isSupervisor() { return active() && me().role == 'supervisor'; }
+    function isAuditor() { return active() && me().role == 'auditor'; }
+
+    // Live positions and movement history (approved access policy):
+    //   Administrator: whole district.  Supervisor: only workers assigned to
+    //   them (records carry the worker's supervisorId).  Auditor: none (duty
+    //   summaries and coverage reports only).  Worker: only their own.
+    function canSeeTracking(d) {
+      return isAdmin() || (isSupervisor() && d.get('supervisorId', null) == uid());
+    }
 
     // ---------- write helpers ----------
     function incoming() { return request.resource.data; }
@@ -86,12 +96,14 @@ service cloud.firestore {
       allow read: if (signedIn() && userId == uid()) || canViewAll();
 
       allow create: if
-        // Self sign-up: always a pending worker with no privileged fields.
+        // Self sign-up: always a Field Worker with no privileged fields.
+        // Workers are active immediately (no approval step). 'pending_approval'
+        // is still accepted so older app versions keep working.
         (signedIn() && userId == uid()
           && incoming().keys().hasOnly(['name', 'email', 'phone', 'role', 'status', 'employeeId', 'category',
                                         'hasLogin', 'synthetic', 'faceEnrolled', 'createdAt'])
           && incoming().role == 'worker'
-          && incoming().status == 'pending_approval'
+          && incoming().status in ['active', 'pending_approval']
           && incoming().email == request.auth.token.email
           && incoming().employeeId == ''
           && incoming().synthetic == false
@@ -113,6 +125,16 @@ service cloud.firestore {
             && !exists(bootstrapPath()) && existsAfter(bootstrapPath())
             && changed().hasOnly(['role', 'status'])
             && incoming().role == 'admin' && incoming().status == 'active')
+        // Accounts created before approval was removed: a pending Field Worker
+        // may activate ITSELF. Only from pending_approval, only the status
+        // field, only to 'active', and only as a worker. Inactive/suspended
+        // accounts (blocked by an admin) cannot use this.
+        || (signedIn() && userId == uid()
+            && resource.data.role == 'worker'
+            && resource.data.status == 'pending_approval'
+            && changed().hasOnly(['status'])
+            && incoming().status == 'active'
+            && incoming().role == 'worker')
         // Users may edit their own contact details only.
         || (signedIn() && userId == uid()
             && changed().hasOnly(['name', 'phone', 'updatedAt'])
@@ -199,14 +221,154 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // ---------- live positions ----------
+    // ---------- live positions (latest point only, one document per person) ----------
+    // Written by TrackingService (lib/services/tracking_service.dart) while the
+    // worker is on field duty. Each write replaces the previous point; the
+    // route is kept in worker_location_updates.
+    function locationKeys() {
+      return ['uid', 'name', 'lat', 'lng', 'accuracy', 'mocked', 'geoStatus', 'distanceToEdge',
+              'boundaryId', 'supervisorId', 'sessionId', 'onDuty', 'updatedAt', 'synthetic'];
+    }
+    function validOwnLocation(userId) {
+      return active() && userId == uid()
+        && incoming().keys().hasOnly(locationKeys())
+        && incoming().get('uid', userId) == userId
+        && incoming().get('synthetic', false) == false
+        && (!('lat' in incoming()) || (incoming().lat is number && incoming().lat >= -90 && incoming().lat <= 90))
+        && (!('lng' in incoming()) || (incoming().lng is number && incoming().lng >= -180 && incoming().lng <= 180))
+        && isServerTime(incoming().updatedAt);
+    }
     match /locations/{userId} {
-      allow read: if canViewAll() || (signedIn() && userId == uid());
-      allow create, update: if isStaff()
-        || (active() && userId == uid()
-            && isServerTime(incoming().updatedAt)
-            && incoming().get('synthetic', false) == false);
-      allow delete: if isStaff();
+      allow read: if (signedIn() && userId == uid()) || canSeeTracking(resource.data);
+      // A worker reports only their own position, with their OWN assigned
+      // boundary and supervisor (so supervisors see only their own workers).
+      allow create: if (isAdmin() && incoming().get('synthetic', false) == true)
+        || (validOwnLocation(userId)
+            && (!('boundaryId' in incoming()) || incoming().boundaryId == me().get('boundaryId', null))
+            && (!('supervisorId' in incoming()) || incoming().supervisorId == me().get('supervisorId', null)));
+      allow update: if (isAdmin() && incoming().get('synthetic', false) == true)
+        || (validOwnLocation(userId)
+            && (!changed().hasAny(['boundaryId']) || incoming().boundaryId == me().get('boundaryId', null))
+            && (!changed().hasAny(['supervisorId']) || incoming().supervisorId == me().get('supervisorId', null)));
+      allow delete: if isAdmin();
+    }
+
+    // ---------- field-duty sessions (one per Start duty -> Stop duty) ----------
+    // Written by TrackingService. Holds no coordinates, so auditors may read it
+    // as a duty record.
+    function validTotals() {
+      return incoming().pointCount is int && incoming().pointCount >= resource.data.get('pointCount', 0)
+        && incoming().insideCount is int && incoming().insideCount >= 0
+        && incoming().insideCount <= incoming().pointCount
+        && incoming().distanceM is number && incoming().distanceM >= resource.data.get('distanceM', 0);
+    }
+    match /tracking_sessions/{sessionId} {
+      allow read: if (signedIn() && resource.data.uid == uid()) || canSeeTracking(resource.data) || isAuditor();
+
+      // A worker starts duty for themself, today, in their own assigned area
+      // and under their own supervisor, with location consent recorded.
+      allow create: if (isAdmin() && incoming().get('synthetic', false) == true)
+        || (isWorker()
+            && incoming().keys().hasOnly(['uid', 'name', 'date', 'boundaryId', 'supervisorId', 'status', 'consent',
+                                          'pointCount', 'insideCount', 'distanceM', 'synthetic', 'startedAt'])
+            && incoming().uid == uid()
+            && incoming().name is string && incoming().name.size() <= 80
+            && isTodayIst(incoming().date)
+            && incoming().boundaryId == me().get('boundaryId', null)
+            && incoming().supervisorId == me().get('supervisorId', null)
+            && incoming().status == 'active'
+            && incoming().consent == true
+            && incoming().pointCount == 0 && incoming().insideCount == 0 && incoming().distanceM == 0
+            && incoming().synthetic == false
+            && isServerTime(incoming().startedAt));
+
+      allow update: if
+        // Owner: running totals while on duty (never decreasing).
+        (signedIn() && resource.data.uid == uid() && resource.data.status == 'active'
+          && changed().hasOnly(['pointCount', 'insideCount', 'distanceM', 'lastPointAt'])
+          && validTotals())
+        // Owner: end the session (once; it can never be reopened).
+        || (signedIn() && resource.data.uid == uid() && resource.data.status == 'active'
+          && changed().hasOnly(['status', 'endedAt', 'endReason', 'pointCount', 'insideCount', 'distanceM', 'lastPointAt'])
+          && incoming().status == 'ended'
+          && isServerTime(incoming().endedAt)
+          && incoming().endReason in ['stopped_by_worker', 'checked_out', 'signed_out', 'auto_closed']
+          && validTotals())
+        // Admin, or the worker's own supervisor: close a session left open.
+        || ((isAdmin() || (isSupervisor() && resource.data.get('supervisorId', null) == uid()))
+          && resource.data.status == 'active'
+          && changed().hasOnly(['status', 'endedAt', 'endReason', 'endedBy'])
+          && incoming().status == 'ended'
+          && incoming().endedBy == uid()
+          && isServerTime(incoming().endedAt));
+
+      allow delete: if isAdmin();   // retention clean-up only
+    }
+
+    // ---------- movement history (route points) ----------
+    // Written by TrackingService (kind start/track/stop) and by the activity
+    // form (kind activity, saved together with the activity and its photos).
+    function pointKeys() {
+      return ['uid', 'sessionId', 'supervisorId', 'boundaryId', 'date', 'kind', 'activityId', 'lat', 'lng',
+              'accuracy', 'speed', 'mocked', 'geoStatus', 'distanceToEdge', 'gpsTime', 'synthetic', 'createdAt'];
+    }
+    function sessionOf(id) { return get(/databases/$(database)/documents/tracking_sessions/$(id)).data; }
+    function validPoint(d) {
+      return d.keys().hasOnly(pointKeys())
+        && d.uid == uid()
+        && d.synthetic == false
+        && d.lat is number && d.lat >= -90 && d.lat <= 90
+        && d.lng is number && d.lng >= -180 && d.lng <= 180
+        && d.accuracy is number && d.accuracy >= 0
+        && d.mocked is bool
+        && d.gpsTime is timestamp
+        && d.date is string
+        && isServerTime(d.createdAt);
+    }
+    match /worker_location_updates/{pointId} {
+      allow read: if (signedIn() && resource.data.uid == uid()) || canSeeTracking(resource.data);
+
+      allow create: if (isAdmin() && incoming().get('synthetic', false) == true)
+        || (isWorker() && validPoint(incoming())
+            && (
+              // Route point: only into the worker's OWN session while it is
+              // active, copying that session's area, supervisor and date.
+              (incoming().kind in ['start', 'track', 'stop']
+                && !('activityId' in incoming())
+                && incoming().sessionId is string
+                && sessionOf(incoming().sessionId).uid == uid()
+                && sessionOf(incoming().sessionId).status == 'active'
+                && incoming().boundaryId == sessionOf(incoming().sessionId).boundaryId
+                && incoming().supervisorId == sessionOf(incoming().sessionId).supervisorId
+                && incoming().date == sessionOf(incoming().sessionId).date)
+              // Activity point: saved in the same batch as the worker's own
+              // activity, today, with their own area and supervisor.
+              || (incoming().kind == 'activity'
+                && incoming().activityId is string
+                && getAfter(/databases/$(database)/documents/activities/$(incoming().activityId)).data.uid == uid()
+                && incoming().boundaryId == me().get('boundaryId', null)
+                && incoming().supervisorId == me().get('supervisorId', null)
+                && isTodayIst(incoming().date)
+                && (incoming().get('sessionId', null) == null || sessionOf(incoming().sessionId).uid == uid()))
+            ));
+
+      allow update: if false;        // history is never edited
+      allow delete: if isAdmin();    // retention clean-up only
+    }
+
+    // ---------- panchayat coverage reports ----------
+    // Saved by administrators from the Field coverage screen: one document per
+    // panchayat per day, totals only (no personal positions).
+    match /panchayat_coverage/{coverageId} {
+      allow read: if isAdmin() || isAuditor();
+      allow create, update: if isAdmin()
+        && incoming().keys().hasOnly(['boundaryId', 'date', 'name', 'block', 'panchayat', 'sessions', 'workers',
+                                      'points', 'insidePoints', 'distanceM', 'covered', 'synthetic',
+                                      'generatedBy', 'generatedAt'])
+        && coverageId == incoming().boundaryId + '_' + incoming().date
+        && incoming().generatedBy == uid()
+        && isServerTime(incoming().generatedAt);
+      allow delete: if isAdmin();
     }
 
     // ---------- tasks ----------
@@ -223,17 +385,36 @@ service cloud.firestore {
                 || (resource.data.status in ['assigned', 'in_progress'] && incoming().status == 'submitted')));
     }
 
-    // ---------- field activities ----------
+    // ---------- field activities and photo evidence metadata ----------
+    // Photo files live in Cloud Storage (storage.rules) at
+    //   evidence/{uid}/{activityId}/{0|1|2}.jpg   (lib/services/evidence_storage.dart)
+    // and the activity stores only those paths in `images`, in upload order.
+    // A worker may reference ONLY their own photos for THIS activity, so they
+    // cannot attach another worker's (or another activity's) evidence.
+    function evidencePath(activityId, i) {
+      return 'evidence/' + uid() + '/' + activityId + '/' + string(i) + '.jpg';
+    }
+    function validEvidence(imgs, activityId) {
+      return imgs is list && imgs.size() <= 3
+        && (imgs.size() < 1 || imgs[0] == evidencePath(activityId, 0))
+        && (imgs.size() < 2 || imgs[1] == evidencePath(activityId, 1))
+        && (imgs.size() < 3 || imgs[2] == evidencePath(activityId, 2));
+    }
     match /activities/{id} {
       allow read: if canViewAll() || (signedIn() && resource.data.uid == uid());
+      // Workers submit through the camera/activity form (lib/screens/common/activity_form.dart),
+      // which is opened only from one of their assigned tasks.
       allow create: if isStaff()
         || (isWorker()
+            && incoming().keys().hasOnly(['taskId', 'taskTitle', 'uid', 'name', 'visitType', 'description',
+                                          'measurement', 'lat', 'lng', 'accuracy', 'geoStatus', 'mocked',
+                                          'sessionId', 'images', 'reviewStatus', 'synthetic', 'createdAt'])
             && incoming().uid == uid()
             && incoming().reviewStatus == 'pending'
             && incoming().synthetic == false
-            && !('reviewNote' in incoming()) && !('reviewedBy' in incoming())
             && isServerTime(incoming().createdAt)
-            && incoming().images is list && incoming().images.size() <= 3
+            && validEvidence(incoming().get('images', null), id)
+            && incoming().taskId is string
             && get(/databases/$(database)/documents/tasks/$(incoming().taskId)).data.assignedTo == uid());
       allow update: if isStaff() && changed().hasOnly(['reviewStatus', 'reviewNote', 'reviewedBy', 'reviewedAt']);
       allow delete: if isAdmin();

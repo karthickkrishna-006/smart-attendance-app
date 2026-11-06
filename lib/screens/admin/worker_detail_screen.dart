@@ -5,6 +5,7 @@ import '../../core/ui.dart';
 import '../../services/db.dart';
 import '../../services/face_service.dart';
 import '../../services/models.dart';
+import '../common/route_screen.dart';
 import '../worker/face_enroll_screen.dart';
 import '../worker/my_attendance_screen.dart';
 import '../worker/my_tasks_screen.dart';
@@ -95,6 +96,14 @@ class WorkerDetailScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => RouteScreen(me: me, workerUid: uid, workerName: w.name)),
+                  ),
+                  icon: const Icon(Icons.route_outlined),
+                  label: Text(me.role == Roles.auditor ? 'Field duty records' : 'Movement route & duty history'),
+                ),
                 if (me.isStaff && !w.faceEnrolled && w.hasLogin)
                   OutlinedButton.icon(
                     onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => FaceEnrollScreen(target: w))),
