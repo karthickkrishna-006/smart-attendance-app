@@ -1,0 +1,104 @@
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    id "dev.flutter.flutter-gradle-plugin"
+    id "com.google.gms.google-services"
+}
+
+// Release signing: key.properties is written by the CI workflow from GitHub secrets.
+// It is never committed to the repository.
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
+}
+
+// CI debug signing is intentionally isolated from the release signing config.
+// The workflow supplies these values through environment variables and stores
+// the keystore outside the checked-out repository.
+def ciDebugSigning = [
+    keystorePath: System.getenv("CI_DEBUG_KEYSTORE_PATH"),
+    keystorePassword: System.getenv("CI_DEBUG_KEYSTORE_PASSWORD"),
+    keyAlias: System.getenv("CI_DEBUG_KEY_ALIAS"),
+    keyPassword: System.getenv("CI_DEBUG_KEY_PASSWORD"),
+]
+def ciDebugSigningRequested = ciDebugSigning.values().any { it != null && !it.isBlank() }
+def ciDebugSigningConfigured = ciDebugSigning.values().every { it != null && !it.isBlank() }
+if (ciDebugSigningRequested && !ciDebugSigningConfigured) {
+    throw new GradleException("CI debug signing was partially configured; provide all CI debug signing values.")
+}
+// The CI test workflow sets CI_REQUIRE_CI_DEBUG_SIGNING=true so a missing or
+// blank secret stops the build instead of silently signing with Android's
+// default debug key (whose SHA-1 is not registered in Firebase).
+if (System.getenv("CI_REQUIRE_CI_DEBUG_SIGNING") == "true" && !ciDebugSigningConfigured) {
+    throw new GradleException("CI debug signing is required but CI_DEBUG_KEYSTORE_PATH / _PASSWORD / _KEY_ALIAS / _KEY_PASSWORD are not all set.")
+}
+
+android {
+    namespace = "in.cit.smartattendance"
+    compileSdk = 35
+    ndkVersion = "27.0.12077973"
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    defaultConfig {
+        applicationId = "in.cit.smartattendance"
+        minSdk = 23
+        targetSdk = 35
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
+        multiDexEnabled = true
+    }
+
+    signingConfigs {
+        ciDebug {
+            if (ciDebugSigningConfigured) {
+                storeFile = file(ciDebugSigning.keystorePath)
+                storePassword = ciDebugSigning.keystorePassword
+                keyAlias = ciDebugSigning.keyAlias
+                keyPassword = ciDebugSigning.keyPassword
+            }
+        }
+        release {
+            if (keystorePropertiesFile.exists()) {
+                keyAlias = keystoreProperties["keyAlias"]
+                keyPassword = keystoreProperties["keyPassword"]
+                storeFile = file(keystoreProperties["storeFile"])
+                storePassword = keystoreProperties["storePassword"]
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            if (ciDebugSigningConfigured) {
+                signingConfig = signingConfigs.ciDebug
+            }
+        }
+        release {
+            // Real release key when key.properties exists; otherwise the CI debug
+            // key (registered in Firebase, so Google Sign-In works in test builds);
+            // otherwise the local Android debug key.
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.release
+            } else if (ciDebugSigningConfigured) {
+                signingConfig = signingConfigs.ciDebug
+            } else {
+                signingConfig = signingConfigs.debug
+            }
+            minifyEnabled = false
+            shrinkResources = false
+        }
+    }
+}
+
+flutter {
+    source = "../.."
+}

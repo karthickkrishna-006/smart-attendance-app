@@ -1,0 +1,401 @@
+rules_version = '2';
+
+// Smart Attendance v2 — Phase 4 (Foundation) security rules.
+//
+// Access is decided HERE, never only by the app's menus. Collections:
+//   accounts/{uid}                   one per signed-in person
+//   roleAssignments/{uid}__{role}    a role over areas (and an organisation)
+//   preregistrations/{email}         people added in advance (no approval step)
+//   areas/{id}                       district > block > zone > panchayat > location
+//   organisations/{id}               the department and third-party firms
+//   hierarchyLevels/{roleKey}        configurable titles for each role
+//   config/app                       switches (open sign-up, policy options)
+//   meta/bootstrap                   proof that the first administrator exists
+//   auditLog/{id}                    append-only record of privileged actions
+//
+// Privileged writes (roles, registrations, configuration, master data) must be
+// accompanied, in the same batch, by an auditLog entry naming that write; the
+// write is refused otherwise, so an administrator cannot change access silently.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------------------------------------------------------------- helpers
+    function signedIn() { return request.auth != null; }
+    function uid() { return request.auth.uid; }
+    function incoming() { return request.resource.data; }
+    function changed() { return request.resource.data.diff(resource.data).affectedKeys(); }
+    function doc(path) { return /databases/$(database)/documents/$(path); }
+
+    // E-mail from the sign-in token, lower case. Only verified addresses count
+    // (Google accounts are always verified; e-mail/password must be confirmed).
+    function verifiedEmail() {
+      return signedIn() && request.auth.token.email != null && request.auth.token.email_verified == true;
+    }
+    function emailKey() { return request.auth.token.email.lower(); }
+
+    // The first administrator. Kept here, on the server side, never in the app.
+    function bootstrapEmail() { return 'krish.sep2006@gmail.com'; }
+
+    function accountActive() {
+      return signedIn() && exists(doc('accounts/' + uid()))
+        && get(doc('accounts/' + uid())).data.status == 'active';
+    }
+    function assignment(role) { return get(doc('roleAssignments/' + uid() + '__' + role)); }
+    function hasRole(role) {
+      return accountActive()
+        && exists(doc('roleAssignments/' + uid() + '__' + role))
+        && assignment(role).data.active == true;
+    }
+    function isSysAdmin() { return hasRole('sys_admin'); }
+    function isAuditor() { return hasRole('auditor'); }
+    function isOrgAdminOf(orgId) {
+      return orgId is string && hasRole('org_admin') && assignment('org_admin').data.orgId == orgId;
+    }
+
+    function roles() {
+      return ['collector', 'officer', 'zonal_secretary', 'supervisor', 'org_admin', 'worker', 'auditor', 'sys_admin'];
+    }
+
+    // The write must come with auditLog/{incoming().auditId}, written in the
+    // same batch by this person, naming this exact target. The entry must be
+    // NEW in this batch, so an old entry cannot be reused for a later change.
+    function audited(target) {
+      return incoming().auditId is string
+        && !exists(doc('auditLog/' + incoming().auditId))
+        && existsAfter(doc('auditLog/' + incoming().auditId))
+        && getAfter(doc('auditLog/' + incoming().auditId)).data.actorUid == uid()
+        && getAfter(doc('auditLog/' + incoming().auditId)).data.target == target;
+    }
+
+    function config() { return get(doc('config/app')).data; }
+    function openSignUp() { return exists(doc('config/app')) && config().get('openWorkerSignUp', false) == true; }
+
+    function prereg() { return get(doc('preregistrations/' + emailKey())); }
+    function hasPrereg() { return verifiedEmail() && exists(doc('preregistrations/' + emailKey())); }
+
+    // -------------------------------------------------------------- accounts
+    match /accounts/{accountId} {
+      allow get: if (signedIn() && accountId == uid()) || isSysAdmin();
+      allow list: if isSysAdmin();
+
+      // Own account only. The organisation and employee ID come from the
+      // person's pre-registration when there is one; otherwise none.
+      allow create: if signedIn() && accountId == uid()
+        && incoming().keys().hasOnly(['email', 'displayName', 'phone', 'employeeId', 'orgId', 'status', 'language', 'createdAt', 'lastLoginAt'])
+        && incoming().email == request.auth.token.email
+        && incoming().status == 'active'
+        && incoming().createdAt == request.time
+        && ((hasPrereg()
+              && incoming().get('orgId', null) == prereg().data.get('orgId', null)
+              && incoming().get('employeeId', null) == prereg().data.get('employeeId', null))
+            || (!hasPrereg()
+              && incoming().get('orgId', null) == null && incoming().get('employeeId', null) == null));
+
+      allow update: if
+        // The person: contact details and preferences only.
+        (signedIn() && accountId == uid()
+          && changed().hasOnly(['displayName', 'phone', 'language', 'lastLoginAt']))
+        // The System administrator: switch an account on or off (audited).
+        || (isSysAdmin() && accountId != uid()
+          && changed().hasOnly(['status', 'auditId'])
+          && incoming().status in ['active', 'disabled']
+          && audited('accounts/' + accountId));
+
+      allow delete: if false;
+    }
+
+    // ------------------------------------------------------- role assignments
+    match /roleAssignments/{assignmentId} {
+      allow get: if (signedIn() && resource.data.uid == uid()) || isSysAdmin();
+      allow list: if (signedIn() && resource.data.uid == uid()) || isSysAdmin();
+
+      function shapeOk() {
+        return incoming().keys().hasOnly(['uid', 'role', 'areaIds', 'orgId', 'active', 'source', 'grantedBy', 'grantedAt', 'auditId'])
+          && incoming().role in roles()
+          && assignmentId == incoming().uid + '__' + incoming().role
+          && incoming().areaIds is list
+          && incoming().active == true
+          && incoming().grantedAt == request.time
+          && audited('roleAssignments/' + assignmentId);
+      }
+
+      allow create: if shapeOk() && (
+        // 1. The System administrator grants a role (any role, audited).
+        (isSysAdmin() && incoming().source == 'admin' && incoming().grantedBy == uid())
+
+        // 2. A pre-registered person claims exactly what was prepared for them,
+        //    in the same batch that marks the pre-registration claimed.
+        || (hasPrereg() && incoming().uid == uid()
+            && incoming().source == 'preregistration'
+            && prereg().data.get('claimedBy', null) == null
+            && getAfter(doc('preregistrations/' + emailKey())).data.claimedBy == uid()
+            && incoming().role == prereg().data.role
+            && incoming().areaIds == prereg().data.areaIds
+            && incoming().get('orgId', null) == prereg().data.get('orgId', null)
+            && incoming().grantedBy == prereg().data.createdBy)
+
+        // 3. Open sign-up (only when switched on): a field worker with no area
+        //    and no organisation until an administrator assigns them.
+        || (openSignUp() && incoming().uid == uid()
+            && incoming().source == 'open_signup'
+            && incoming().role == 'worker'
+            && incoming().areaIds.size() == 0
+            && incoming().get('orgId', null) == null
+            && incoming().grantedBy == uid())
+
+        // 4. One-time bootstrap of the first administrator, by the configured
+        //    e-mail only, together with meta/bootstrap in the same batch.
+        || (verifiedEmail() && emailKey() == bootstrapEmail()
+            && incoming().uid == uid()
+            && incoming().role == 'sys_admin'
+            && incoming().source == 'bootstrap'
+            && incoming().grantedBy == uid()
+            && !exists(doc('meta/bootstrap'))
+            && existsAfter(doc('meta/bootstrap')))
+      );
+
+      // Only the System administrator changes a role's areas, organisation or
+      // on/off state (audited). Who holds it and which role it is never change.
+      allow update: if isSysAdmin()
+        && changed().hasOnly(['areaIds', 'orgId', 'active', 'auditId'])
+        && incoming().areaIds is list
+        && incoming().active is bool
+        && audited('roleAssignments/' + assignmentId);
+
+      allow delete: if false;   // switch off instead, so history is kept
+    }
+
+    // ------------------------------------------------------- pre-registrations
+    match /preregistrations/{key} {
+      allow get: if isSysAdmin()
+        || (resource != null && isOrgAdminOf(resource.data.get('orgId', null)))
+        || (verifiedEmail() && key == emailKey());
+      allow list: if isSysAdmin() || (resource.data.get('orgId', null) != null && isOrgAdminOf(resource.data.orgId));
+
+      function preregShape() {
+        return incoming().keys().hasOnly(['email', 'name', 'employeeId', 'orgId', 'role', 'areaIds', 'createdBy', 'createdAt', 'auditId'])
+          && key == incoming().email
+          && incoming().email == incoming().email.lower()
+          && incoming().role in roles()
+          && incoming().areaIds is list
+          && incoming().createdBy == uid()
+          && incoming().createdAt == request.time
+          && audited('preregistrations/' + key);
+      }
+
+      allow create: if preregShape() && (
+        isSysAdmin()
+        // Organisation admins add field workers to their own organisation only.
+        || (isOrgAdminOf(incoming().get('orgId', null)) && incoming().role == 'worker')
+      );
+
+      allow update: if
+        // The person claims it (once), in the batch that creates their role.
+        (verifiedEmail() && key == emailKey()
+          && resource.data.get('claimedBy', null) == null
+          && changed().hasOnly(['claimedBy', 'claimedAt'])
+          && incoming().claimedBy == uid()
+          && incoming().claimedAt == request.time
+          && existsAfter(doc('roleAssignments/' + uid() + '__' + resource.data.role)))
+        // An administrator edits an unclaimed one (audited).
+        || (resource.data.get('claimedBy', null) == null
+          && (isSysAdmin() || (isOrgAdminOf(resource.data.get('orgId', null)) && incoming().role == 'worker'
+                               && incoming().get('orgId', null) == resource.data.orgId))
+          && changed().hasOnly(['name', 'employeeId', 'areaIds', 'role', 'orgId', 'auditId'])
+          && incoming().role in roles()
+          && audited('preregistrations/' + key));
+
+      allow delete: if resource.data.get('claimedBy', null) == null
+        && (isSysAdmin() || isOrgAdminOf(resource.data.get('orgId', null)));
+    }
+
+    // ------------------------------------------------------------ master data
+    match /areas/{areaId} {
+      allow read: if signedIn();
+      // The path runs from the district down to this node; a child's path is
+      // its parent's path plus its own id, so scope checks stay consistent.
+      allow create, update: if isSysAdmin()
+        && incoming().keys().hasOnly(['name', 'level', 'parentId', 'path', 'provisional', 'auditId'])
+        && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 120
+        && incoming().level in ['district', 'block', 'zone', 'panchayat', 'location']
+        && incoming().provisional is bool
+        && ((incoming().level == 'district'
+              && incoming().get('parentId', null) == null && incoming().path == [areaId])
+            || (incoming().level != 'district'
+              && incoming().parentId is string
+              && incoming().path == get(doc('areas/' + incoming().parentId)).data.path.concat([areaId])))
+        && audited('areas/' + areaId);
+      allow delete: if false;
+    }
+
+    match /organisations/{orgId} {
+      allow read: if signedIn();
+      allow create, update: if isSysAdmin()
+        && incoming().keys().hasOnly(['name', 'type', 'active', 'auditId'])
+        && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 120
+        && incoming().type in ['department', 'third_party']
+        && incoming().active is bool
+        && audited('organisations/' + orgId);
+      allow delete: if false;
+    }
+
+    match /hierarchyLevels/{roleKey} {
+      allow read: if signedIn();
+      allow create, update: if isSysAdmin()
+        && roleKey in roles()
+        && incoming().keys().hasOnly(['title', 'auditId'])
+        && incoming().title is string && incoming().title.size() > 0 && incoming().title.size() <= 60
+        && audited('hierarchyLevels/' + roleKey);
+      allow delete: if false;
+    }
+
+    match /config/{docId} {
+      allow read: if signedIn();
+      allow create, update: if isSysAdmin() && docId == 'app'
+        && incoming().keys().hasOnly(['openWorkerSignUp', 'supervisorsMayCreateTasks', 'collectorMayAssignTasks', 'auditId'])
+        && incoming().get('openWorkerSignUp', false) is bool
+        && incoming().get('supervisorsMayCreateTasks', false) is bool
+        && incoming().get('collectorMayAssignTasks', false) is bool
+        && audited('config/app');
+      allow delete: if false;
+    }
+
+    match /meta/bootstrap {
+      allow get: if signedIn();
+      allow create: if verifiedEmail() && emailKey() == bootstrapEmail()
+        && incoming().keys().hasOnly(['uid', 'email', 'at'])
+        && incoming().uid == uid()
+        && incoming().email == emailKey()
+        && incoming().at == request.time
+        && existsAfter(doc('roleAssignments/' + uid() + '__sys_admin'));
+      allow update, delete: if false;
+    }
+
+    // -------------------------------------------------------------- audit log
+    match /auditLog/{entryId} {
+      allow read: if isSysAdmin() || isAuditor();
+      allow create: if signedIn()
+        && incoming().keys().hasOnly(['actorUid', 'actorEmail', 'action', 'target', 'details', 'at'])
+        && incoming().actorUid == uid()
+        && incoming().get('actorEmail', null) == request.auth.token.get('email', null)
+        && incoming().action is string && incoming().action.size() > 0 && incoming().action.size() <= 64
+        && incoming().target is string && incoming().target.size() <= 200
+        && incoming().at == request.time;
+      allow update, delete: if false;   // append-only
+    }
+
+    // ------------------------------------------------- shared scope helpers
+    function istNow() { return request.time + duration.value(330, 'm'); }
+    function sameIstDay(parts, t) {
+      return int(parts[0]) == t.year() && int(parts[1]) == t.month() && int(parts[2]) == t.day();
+    }
+    // Today or yesterday in India time: yesterday allows a check-in saved
+    // offline in the evening to upload the next morning.
+    function isRecentIstDate(dateStr) {
+      let parts = dateStr.split('-');
+      return parts.size() == 3
+        && (sameIstDay(parts, istNow()) || sameIstDay(parts, istNow() - duration.value(1, 'd')));
+    }
+    function coversPath(role, path) {
+      return hasRole(role) && assignment(role).data.areaIds.hasAny(path);
+    }
+    // Officers see records inside their areas; the Collector the whole district;
+    // organisation admins their own organisation; auditors history.
+    function officerSees(d) {
+      return hasRole('collector')
+        || coversPath('officer', d.areaPath)
+        || coversPath('zonal_secretary', d.areaPath)
+        || coversPath('supervisor', d.areaPath)
+        || (d.get('orgId', null) != null && isOrgAdminOf(d.orgId))
+        || isAuditor();
+    }
+
+    // -------------------------------------------------------------- geofences
+    // A circle (centre + radius) or one polygon ring, tied to an area; the
+    // area path is copied so attendance inside it carries the same scope.
+    match /geofences/{fenceId} {
+      allow read: if accountActive();
+      allow create, update: if isSysAdmin()
+        && incoming().keys().hasOnly(['name', 'areaId', 'areaPath', 'kind', 'center', 'radiusM', 'ring', 'provisional', 'auditId'])
+        && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 120
+        && incoming().areaId is string
+        && incoming().areaPath == get(doc('areas/' + incoming().areaId)).data.path
+        && incoming().provisional is bool
+        && ((incoming().kind == 'circle'
+              && incoming().center is latlng
+              && incoming().radiusM is number && incoming().radiusM >= 20 && incoming().radiusM <= 5000
+              && !('ring' in incoming()))
+            || (incoming().kind == 'polygon'
+              && incoming().ring is list && incoming().ring.size() >= 3 && incoming().ring.size() <= 1000
+              && !('center' in incoming()) && !('radiusM' in incoming())))
+        && audited('geofences/' + fenceId);
+      allow delete: if false;
+    }
+
+    // ------------------------------------------------------------ attendance
+    // One session per worker per day: attendanceSessions/{uid}_{yyyy-MM-dd}.
+    // Location checks run on the phone (no server on the free plan), so the
+    // record says evaluatedBy 'device'; these rules make sure it cannot claim
+    // more than its own data supports.
+    function validCheckIn(c) {
+      return c.keys().hasOnly(['at', 'deviceAt', 'lat', 'lng', 'accuracy', 'mocked', 'geofenceId', 'placement',
+                               'edgeDistanceM', 'status', 'late', 'reasons', 'eventId'])
+        && c.at == request.time
+        && c.deviceAt is timestamp
+        && c.lat is number && c.lat >= -90 && c.lat <= 90
+        && c.lng is number && c.lng >= -180 && c.lng <= 180
+        && c.accuracy is number && c.accuracy >= 0
+        && c.mocked is bool
+        && c.placement in ['inside', 'outside', 'uncertain', 'none']
+        && c.status in ['verified', 'flagged']
+        && c.late is bool
+        && c.reasons is list
+        && c.eventId is string
+        // "Verified" only with no reasons, a real geofence, inside it, no mock GPS.
+        && (c.status == 'flagged'
+            || (c.reasons.size() == 0 && c.mocked == false && c.geofenceId is string && c.placement == 'inside'));
+    }
+    function validCheckOut(c) {
+      return c.keys().hasOnly(['at', 'deviceAt', 'lat', 'lng', 'accuracy', 'mocked', 'eventId'])
+        && c.at == request.time
+        && c.deviceAt is timestamp
+        && (c.lat == null || (c.lat is number && c.lat >= -90 && c.lat <= 90))
+        && (c.lng == null || (c.lng is number && c.lng >= -180 && c.lng <= 180))
+        && c.mocked is bool
+        && c.eventId is string;
+    }
+    match /attendanceSessions/{sessionId} {
+      allow read: if (signedIn() && resource.data.uid == uid()) || officerSees(resource.data);
+
+      allow create: if hasRole('worker')
+        && incoming().keys().hasOnly(['uid', 'date', 'orgId', 'areaPath', 'checkIn', 'evaluatedBy', 'createdAt'])
+        && incoming().uid == uid()
+        && incoming().date is string
+        && sessionId == uid() + '_' + incoming().date
+        && isRecentIstDate(incoming().date)
+        && incoming().get('orgId', null) == assignment('worker').data.get('orgId', null)
+        && incoming().evaluatedBy == 'device'
+        && incoming().createdAt == request.time
+        && validCheckIn(incoming().checkIn)
+        && ((incoming().checkIn.get('geofenceId', null) == null && incoming().areaPath == [])
+            || (incoming().checkIn.geofenceId is string
+                && incoming().areaPath == get(doc('geofences/' + incoming().checkIn.geofenceId)).data.areaPath
+                && assignment('worker').data.areaIds.hasAny(incoming().areaPath)));
+
+      // Check-out once; the check-in itself can never be edited.
+      allow update: if signedIn() && resource.data.uid == uid()
+        && !('checkOut' in resource.data)
+        && changed().hasOnly(['checkOut', 'updatedAt'])
+        && incoming().updatedAt == request.time
+        && validCheckOut(incoming().checkOut);
+
+      allow delete: if false;
+    }
+
+    // Everything else is closed.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

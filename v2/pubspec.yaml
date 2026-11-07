@@ -1,0 +1,30 @@
+name: field_monitor
+description: Smart Attendance and Field Activity Monitoring System (v2, rebuilt from scratch).
+publish_to: 'none'
+version: 2.0.0+200
+
+environment:
+  sdk: '>=3.5.0 <4.0.0'
+
+# Added with each feature that needs it (Phase 4: sign-in and database;
+# Phase 5.2: location for attendance). Maps, camera and background work come
+# with their own modules.
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  firebase_core: ^3.8.1
+  firebase_auth: ^5.3.4
+  cloud_firestore: ^5.6.0
+  google_sign_in: ^6.2.2
+  # Phase 5.2 attendance: one GPS fix when the worker marks attendance.
+  geolocator: ^13.0.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true

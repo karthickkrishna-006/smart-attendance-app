@@ -1,0 +1,205 @@
+import 'package:flutter/widgets.dart';
+
+/// Tamil and English text (Implementation Plan §6.9). Worker and shared
+/// screens are fully bilingual; administrator setup screens are English for
+/// now. The Tamil wording must be reviewed by a native speaker before
+/// real users see it.
+class Strings {
+  const Strings(this.lang);
+
+  final String lang;
+
+  static const supported = ['en', 'ta'];
+
+  String t(String key, [Map<String, String> args = const {}]) {
+    var s = (lang == 'ta' ? _ta[key] : null) ?? _en[key] ?? key;
+    args.forEach((k, v) => s = s.replaceAll('{$k}', v));
+    return s;
+  }
+
+  static Strings of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<LanguageScope>()?.strings ?? const Strings('en');
+
+  static const _en = <String, String>{
+    'appName': 'Smart Attendance',
+    'signInTitle': 'Sign in to continue',
+    'signInGoogle': 'Sign in with Google',
+    'signingIn': 'Signing in…',
+    'useEmail': 'Use email and password instead',
+    'email': 'Email',
+    'password': 'Password',
+    'signIn': 'Sign in',
+    'createAccount': 'Create account',
+    'forgotPassword': 'Forgot password?',
+    'resetSent': 'Password reset email sent to {email}.',
+    'privacyNote': 'Your location and photos are used only to confirm attendance and work.',
+    'notRegisteredTitle': 'You are not registered yet',
+    'notRegisteredBody':
+        'Ask your organisation administrator to add {email}. You get access as soon as they do; there is nothing to approve.',
+    'verifyEmailBody': 'Confirm your email address first: open the link sent to {email}, then tap Check again.',
+    'checkAgain': 'Check again',
+    'signOut': 'Sign out',
+    'disabledTitle': 'Your account is switched off',
+    'disabledBody': 'Contact your administrator to switch it back on.',
+    'errorTitle': 'Could not load your account',
+    'retry': 'Try again',
+    'loading': 'Loading…',
+    'home': 'Home',
+    'attendance': 'Attendance',
+    'activity': 'Activity',
+    'tasks': 'Tasks',
+    'profile': 'Profile',
+    'hello': 'Hello, {name}',
+    'yourArea': 'Your area',
+    'notAssigned': 'No area assigned yet',
+    'previewBanner': 'Preview build: attendance, field activities and tasks are added in the next stage.',
+    'sectionNext': 'This section is built in the next stage.',
+    'whatYouCanDo': 'What you can do',
+    'language': 'Language',
+    'role': 'Role',
+    'switchRole': 'Switch role',
+    'organisation': 'Organisation',
+    'none': 'None',
+    'overview': 'Overview',
+    'liveMonitoring': 'Live monitoring',
+    'employees': 'Employees',
+    'fieldActivities': 'Field activities',
+    'coverage': 'Coverage',
+    'reports': 'Reports',
+    'alerts': 'Alerts',
+    'setup': 'Setup',
+    'auditLog': 'Audit log',
+    'english': 'English',
+    'tamil': 'தமிழ்',
+    'emailInvalid': 'Enter a valid email address.',
+    'passwordShort': 'Use at least 8 characters.',
+    'attendanceTitle': 'Today\'s attendance',
+    'notMarked': 'Not marked yet',
+    'markAttendance': 'I am at work: mark attendance',
+    'checkingLocation': 'Checking your location…',
+    'confirmAttendance': 'Confirm attendance',
+    'cancel': 'Cancel',
+    'inArea': 'You are inside {name}.',
+    'outsideArea': 'You are about {m} m outside {name}.',
+    'nearEdge': 'You are at the edge of {name}; GPS cannot tell if you are inside.',
+    'noFence': 'No work-area boundary is set for you yet.',
+    'gpsAccuracy': 'GPS accuracy: ±{m} m',
+    'willBeVerified': 'This will be recorded as Verified.',
+    'willBeFlagged': 'This will be recorded, and your supervisor will check it because:',
+    'late': 'Late',
+    'startedAt': 'Started at {time}',
+    'finishedAt': 'Finished at {time}',
+    'finishWork': 'Finish work for today',
+    'doneForToday': 'Attendance complete for today.',
+    'savedOk': 'Attendance saved.',
+    'savedOffline': 'No internet: saved on this phone. It will be sent automatically.',
+    'statusVerified': 'Verified',
+    'statusFlagged': 'Will be checked',
+    'openSettings': 'Open settings',
+    'reason_no_assigned_area': 'No work area is assigned to you.',
+    'reason_no_geofence': 'Your work area has no boundary yet.',
+    'reason_outside_area': 'You are outside your work area.',
+    'reason_near_edge': 'You are too close to the edge to be sure.',
+    'reason_low_accuracy': 'GPS is not accurate enough here.',
+    'reason_mock_location': 'A fake-location app is active.',
+    'reason_outside_hours': 'It is outside working hours.',
+  };
+
+  static const _ta = <String, String>{
+    'appName': 'ஸ்மார்ட் வருகைப் பதிவு',
+    'signInTitle': 'தொடர உள்நுழையவும்',
+    'signInGoogle': 'Google மூலம் உள்நுழைக',
+    'signingIn': 'உள்நுழைகிறது…',
+    'useEmail': 'மின்னஞ்சல் மற்றும் கடவுச்சொல்லைப் பயன்படுத்தவும்',
+    'email': 'மின்னஞ்சல்',
+    'password': 'கடவுச்சொல்',
+    'signIn': 'உள்நுழைக',
+    'createAccount': 'கணக்கை உருவாக்கு',
+    'forgotPassword': 'கடவுச்சொல் மறந்துவிட்டதா?',
+    'resetSent': 'கடவுச்சொல் மீட்டமைப்பு மின்னஞ்சல் {email} க்கு அனுப்பப்பட்டது.',
+    'privacyNote': 'உங்கள் இருப்பிடமும் புகைப்படங்களும் வருகை மற்றும் பணியை உறுதிப்படுத்த மட்டுமே பயன்படுத்தப்படும்.',
+    'notRegisteredTitle': 'நீங்கள் இன்னும் பதிவு செய்யப்படவில்லை',
+    'notRegisteredBody':
+        'உங்கள் நிறுவன நிர்வாகியிடம் {email} ஐச் சேர்க்கச் சொல்லுங்கள். அவர்கள் சேர்த்தவுடன் உங்களுக்கு அணுகல் கிடைக்கும்; ஒப்புதல் தேவையில்லை.',
+    'verifyEmailBody': 'முதலில் உங்கள் மின்னஞ்சலை உறுதிப்படுத்தவும்: {email} க்கு அனுப்பிய இணைப்பைத் திறந்து, பிறகு "மீண்டும் சரிபார்" என்பதைத் தட்டவும்.',
+    'checkAgain': 'மீண்டும் சரிபார்',
+    'signOut': 'வெளியேறு',
+    'disabledTitle': 'உங்கள் கணக்கு நிறுத்தப்பட்டுள்ளது',
+    'disabledBody': 'மீண்டும் இயக்க உங்கள் நிர்வாகியைத் தொடர்பு கொள்ளவும்.',
+    'errorTitle': 'உங்கள் கணக்கை ஏற்ற முடியவில்லை',
+    'retry': 'மீண்டும் முயற்சி செய்',
+    'loading': 'ஏற்றுகிறது…',
+    'home': 'முகப்பு',
+    'attendance': 'வருகை',
+    'activity': 'செயல்பாடு',
+    'tasks': 'பணிகள்',
+    'profile': 'சுயவிவரம்',
+    'hello': 'வணக்கம், {name}',
+    'yourArea': 'உங்கள் பகுதி',
+    'notAssigned': 'இன்னும் பகுதி ஒதுக்கப்படவில்லை',
+    'previewBanner': 'முன்னோட்டப் பதிப்பு: வருகை, களச் செயல்பாடுகள் மற்றும் பணிகள் அடுத்த கட்டத்தில் சேர்க்கப்படும்.',
+    'sectionNext': 'இந்தப் பகுதி அடுத்த கட்டத்தில் உருவாக்கப்படும்.',
+    'whatYouCanDo': 'நீங்கள் செய்யக்கூடியவை',
+    'language': 'மொழி',
+    'role': 'பங்கு',
+    'switchRole': 'பங்கை மாற்று',
+    'organisation': 'நிறுவனம்',
+    'none': 'இல்லை',
+    'overview': 'கண்ணோட்டம்',
+    'liveMonitoring': 'நேரலைக் கண்காணிப்பு',
+    'employees': 'பணியாளர்கள்',
+    'fieldActivities': 'களச் செயல்பாடுகள்',
+    'coverage': 'பரப்பு',
+    'reports': 'அறிக்கைகள்',
+    'alerts': 'எச்சரிக்கைகள்',
+    'setup': 'அமைப்பு',
+    'auditLog': 'தணிக்கைப் பதிவு',
+    'english': 'English',
+    'tamil': 'தமிழ்',
+    'emailInvalid': 'சரியான மின்னஞ்சல் முகவரியை உள்ளிடவும்.',
+    'passwordShort': 'குறைந்தது 8 எழுத்துகளைப் பயன்படுத்தவும்.',
+    'attendanceTitle': 'இன்றைய வருகை',
+    'notMarked': 'இன்னும் பதிவு செய்யப்படவில்லை',
+    'markAttendance': 'நான் பணியில் இருக்கிறேன்: வருகையைப் பதிவு செய்',
+    'checkingLocation': 'உங்கள் இருப்பிடத்தைச் சரிபார்க்கிறது…',
+    'confirmAttendance': 'வருகையை உறுதிப்படுத்து',
+    'cancel': 'ரத்து செய்',
+    'inArea': 'நீங்கள் {name} பகுதிக்குள் இருக்கிறீர்கள்.',
+    'outsideArea': 'நீங்கள் {name} பகுதிக்கு வெளியே சுமார் {m} மீ தொலைவில் இருக்கிறீர்கள்.',
+    'nearEdge': 'நீங்கள் {name} எல்லையில் இருக்கிறீர்கள்; உள்ளே இருக்கிறீர்களா என்பதை GPS உறுதியாகச் சொல்ல முடியவில்லை.',
+    'noFence': 'உங்களுக்கான பணிப் பகுதி எல்லை இன்னும் அமைக்கப்படவில்லை.',
+    'gpsAccuracy': 'GPS துல்லியம்: ±{m} மீ',
+    'willBeVerified': 'இது "சரிபார்க்கப்பட்டது" எனப் பதிவு செய்யப்படும்.',
+    'willBeFlagged': 'இது பதிவு செய்யப்படும்; பின்வரும் காரணத்தால் உங்கள் மேற்பார்வையாளர் சரிபார்ப்பார்:',
+    'late': 'தாமதம்',
+    'startedAt': '{time} மணிக்குத் தொடங்கியது',
+    'finishedAt': '{time} மணிக்கு முடிந்தது',
+    'finishWork': 'இன்றைய பணியை முடி',
+    'doneForToday': 'இன்றைய வருகை முடிந்தது.',
+    'savedOk': 'வருகை சேமிக்கப்பட்டது.',
+    'savedOffline': 'இணையம் இல்லை: இந்தத் தொலைபேசியில் சேமிக்கப்பட்டது. தானாக அனுப்பப்படும்.',
+    'statusVerified': 'சரிபார்க்கப்பட்டது',
+    'statusFlagged': 'சரிபார்க்கப்படும்',
+    'openSettings': 'அமைப்புகளைத் திற',
+    'reason_no_assigned_area': 'உங்களுக்குப் பணிப் பகுதி ஒதுக்கப்படவில்லை.',
+    'reason_no_geofence': 'உங்கள் பணிப் பகுதிக்கு இன்னும் எல்லை இல்லை.',
+    'reason_outside_area': 'நீங்கள் உங்கள் பணிப் பகுதிக்கு வெளியே இருக்கிறீர்கள்.',
+    'reason_near_edge': 'நீங்கள் எல்லைக்கு மிக அருகில் இருப்பதால் உறுதியாகச் சொல்ல முடியவில்லை.',
+    'reason_low_accuracy': 'இங்கு GPS போதுமான துல்லியமாக இல்லை.',
+    'reason_mock_location': 'போலி இருப்பிடச் செயலி இயங்குகிறது.',
+    'reason_outside_hours': 'இது பணி நேரத்துக்கு வெளியே உள்ளது.',
+  };
+
+  /// Keys present in English but missing in Tamil (checked by a unit test).
+  static List<String> missingTamil() => _en.keys.where((k) => !_ta.containsKey(k)).toList();
+}
+
+/// Provides the current language to every screen below it.
+class LanguageScope extends InheritedWidget {
+  const LanguageScope({super.key, required this.strings, required super.child});
+
+  final Strings strings;
+
+  @override
+  bool updateShouldNotify(LanguageScope oldWidget) => oldWidget.strings.lang != strings.lang;
+}
