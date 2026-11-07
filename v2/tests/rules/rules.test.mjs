@@ -365,11 +365,43 @@ test('attendance: who can read it', async () => {
   await assertSucceeds(getDoc(doc(as('col', 'col@x.in').db, `attendanceSessions/${id}`)));    // Collector
   await assertSucceeds(getDoc(doc(as('aud', 'aud@x.in').db, `attendanceSessions/${id}`)));    // auditor (history)
   await assertFails(getDoc(doc(admin().db, `attendanceSessions/${id}`)));                     // System administrator: no operational data
-  // Area-filtered queries, as the officer dashboards will run them.
+  // Area-filtered queries, as the officer dashboards run them: one area id
+  // per query with array-contains.
   const sup = as('sup1', 'sup1@x.in').db;
-  await assertSucceeds(getDocs(query(collection(sup, 'attendanceSessions'), where('areaPath', 'array-contains-any', ['b1']))));
+  await assertSucceeds(getDocs(query(collection(sup, 'attendanceSessions'), where('areaPath', 'array-contains', 'b1'))));
+  await assertFails(getDocs(query(collection(sup, 'attendanceSessions'), where('areaPath', 'array-contains', 'd1'))));   // whole district
+  await assertFails(getDocs(query(collection(sup, 'attendanceSessions'), where('areaPath', 'array-contains', 'b2'))));
   await assertFails(getDocs(collection(sup, 'attendanceSessions')));
+  // An officer with several areas can query each of them (not only the first).
+  await seed('accounts/sup3', { email: 'sup3@x.in', status: 'active' });
+  await seed('roleAssignments/sup3__supervisor', { uid: 'sup3', role: 'supervisor', areaIds: ['b9', 'b1'], active: true, source: 'admin', grantedBy: 'adm' });
+  await assertSucceeds(getDocs(query(collection(as('sup3', 'sup3@x.in').db, 'attendanceSessions'), where('areaPath', 'array-contains', 'b1'))));
+  // Organisation admins query their own organisation; the Collector the district; auditors history.
+  await assertSucceeds(getDocs(query(collection(as('oa', 'oa@firm-a.in').db, 'attendanceSessions'), where('orgId', '==', 'orgA'))));
+  await assertFails(getDocs(query(collection(as('oa', 'oa@firm-a.in').db, 'attendanceSessions'), where('orgId', '==', 'orgB'))));
+  await assertSucceeds(getDocs(collection(as('col', 'col@x.in').db, 'attendanceSessions')));
+  await assertSucceeds(getDocs(collection(as('aud', 'aud@x.in').db, 'attendanceSessions')));
+  await assertFails(getDocs(collection(admin().db, 'attendanceSessions')));
+  // A record without an owner never becomes readable through the ownership check.
+  await seed('attendanceSessions/orphan', { date: istToday(), areaPath: ['d1', 'b2'], evaluatedBy: 'device' });
+  await assertFails(getDoc(doc(as('w1', 'w1@x.in').db, 'attendanceSessions/orphan')));
+  await assertFails(getDoc(doc(as('sup1', 'sup1@x.in').db, 'attendanceSessions/orphan')));
   const w = as('w1', 'w1@x.in').db;
   await assertSucceeds(getDocs(query(collection(w, 'attendanceSessions'), where('uid', '==', 'w1'))));
   await assertFails(getDocs(query(collection(w, 'attendanceSessions'), where('uid', '==', 'w2'))));
+});
+
+test('a role or pre-registration covers at most 10 areas', async () => {
+  const a = admin();
+  const eleven = Array.from({ length: 11 }, (_, i) => `a${i}`);
+  const ten = eleven.slice(0, 10);
+  const grant = (areaIds) => {
+    const b = writeBatch(a.db);
+    b.update(doc(a.db, 'roleAssignments/w1__worker'), { areaIds, auditId: audit(b, a, 'roleAssignments/w1__worker') });
+    return b.commit();
+  };
+  await assertFails(grant(eleven));
+  await assertSucceeds(grant(ten));
+  await assertFails(addPrereg(a, 'many@x.in', { role: 'supervisor', areaIds: eleven }));
+  await assertSucceeds(addPrereg(a, 'ten@x.in', { role: 'supervisor', areaIds: ten }));
 });

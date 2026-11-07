@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../app/theme.dart';
+import '../../app/ui.dart';
 import '../../data/directory.dart';
 import '../../domain/area.dart';
 
@@ -79,7 +80,15 @@ Future<PickedScope?> pickScope(
           TextButton(onPressed: () => Navigator.pop(c), child: const Text('Cancel')),
           FilledButton(
             style: FilledButton.styleFrom(minimumSize: const Size(96, 44)),
-            onPressed: () => Navigator.pop(c, PickedScope(chosen.toList(), org)),
+            onPressed: () {
+              // The security rules allow at most 10 areas per role: choose a
+              // higher level (for example the block) instead of many panchayats.
+              if (chosen.length > 10) {
+                showToast('Choose at most 10 areas. To cover more, choose the block or zone above them.', kind: ToastKind.error);
+                return;
+              }
+              Navigator.pop(c, PickedScope(chosen.toList(), org));
+            },
             child: const Text('Done'),
           ),
         ],
