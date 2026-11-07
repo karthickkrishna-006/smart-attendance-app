@@ -33,6 +33,35 @@
           ]
         }
       }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:671988938123:android:ecd750a089d0c71fa46b8e",
+        "android_client_info": {
+          "package_name": "in.cit.smartattendance.v2"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "671988938123-nne83v2jp3ekm0587ktjoq087oq13e8e.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBfYMW26ERiwsZYzWY0BbXUApNYw5Hey40"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "671988938123-nne83v2jp3ekm0587ktjoq087oq13e8e.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
     }
   ],
   "configuration_version": "1"
