@@ -25,7 +25,6 @@ service cloud.firestore {
     function uid() { return request.auth.uid; }
     function incoming() { return request.resource.data; }
     function changed() { return request.resource.data.diff(resource.data).affectedKeys(); }
-    function doc(path) { return /databases/$(database)/documents/$(path); }
 
     // E-mail from the sign-in token, lower case. Only verified addresses count
     // (Google accounts are always verified; e-mail/password must be confirmed).
@@ -38,13 +37,13 @@ service cloud.firestore {
     function bootstrapEmail() { return 'krish.sep2006@gmail.com'; }
 
     function accountActive() {
-      return signedIn() && exists(doc('accounts/' + uid()))
-        && get(doc('accounts/' + uid())).data.status == 'active';
+      return signedIn() && exists(/databases/$(database)/documents/accounts/$(uid()))
+        && get(/databases/$(database)/documents/accounts/$(uid())).data.status == 'active';
     }
-    function assignment(role) { return get(doc('roleAssignments/' + uid() + '__' + role)); }
+    function assignment(role) { return get(/databases/$(database)/documents/roleAssignments/$(uid() + '__' + role)); }
     function hasRole(role) {
       return accountActive()
-        && exists(doc('roleAssignments/' + uid() + '__' + role))
+        && exists(/databases/$(database)/documents/roleAssignments/$(uid() + '__' + role))
         && assignment(role).data.active == true;
     }
     function isSysAdmin() { return hasRole('sys_admin'); }
@@ -62,17 +61,17 @@ service cloud.firestore {
     // NEW in this batch, so an old entry cannot be reused for a later change.
     function audited(target) {
       return incoming().auditId is string
-        && !exists(doc('auditLog/' + incoming().auditId))
-        && existsAfter(doc('auditLog/' + incoming().auditId))
-        && getAfter(doc('auditLog/' + incoming().auditId)).data.actorUid == uid()
-        && getAfter(doc('auditLog/' + incoming().auditId)).data.target == target;
+        && !exists(/databases/$(database)/documents/auditLog/$(incoming().auditId))
+        && existsAfter(/databases/$(database)/documents/auditLog/$(incoming().auditId))
+        && getAfter(/databases/$(database)/documents/auditLog/$(incoming().auditId)).data.actorUid == uid()
+        && getAfter(/databases/$(database)/documents/auditLog/$(incoming().auditId)).data.target == target;
     }
 
-    function config() { return get(doc('config/app')).data; }
-    function openSignUp() { return exists(doc('config/app')) && config().get('openWorkerSignUp', false) == true; }
+    function config() { return get(/databases/$(database)/documents/config/app).data; }
+    function openSignUp() { return exists(/databases/$(database)/documents/config/app) && config().get('openWorkerSignUp', false) == true; }
 
-    function prereg() { return get(doc('preregistrations/' + emailKey())); }
-    function hasPrereg() { return verifiedEmail() && exists(doc('preregistrations/' + emailKey())); }
+    function prereg() { return get(/databases/$(database)/documents/preregistrations/$(emailKey())); }
+    function hasPrereg() { return verifiedEmail() && exists(/databases/$(database)/documents/preregistrations/$(emailKey())); }
 
     // -------------------------------------------------------------- accounts
     match /accounts/{accountId} {
@@ -129,7 +128,7 @@ service cloud.firestore {
         || (hasPrereg() && incoming().uid == uid()
             && incoming().source == 'preregistration'
             && prereg().data.get('claimedBy', null) == null
-            && getAfter(doc('preregistrations/' + emailKey())).data.claimedBy == uid()
+            && getAfter(/databases/$(database)/documents/preregistrations/$(emailKey())).data.claimedBy == uid()
             && incoming().role == prereg().data.role
             && incoming().areaIds == prereg().data.areaIds
             && incoming().get('orgId', null) == prereg().data.get('orgId', null)
@@ -151,8 +150,8 @@ service cloud.firestore {
             && incoming().role == 'sys_admin'
             && incoming().source == 'bootstrap'
             && incoming().grantedBy == uid()
-            && !exists(doc('meta/bootstrap'))
-            && existsAfter(doc('meta/bootstrap')))
+            && !exists(/databases/$(database)/documents/meta/bootstrap)
+            && existsAfter(/databases/$(database)/documents/meta/bootstrap))
       );
 
       // Only the System administrator changes a role's areas, organisation or
@@ -197,7 +196,7 @@ service cloud.firestore {
           && changed().hasOnly(['claimedBy', 'claimedAt'])
           && incoming().claimedBy == uid()
           && incoming().claimedAt == request.time
-          && existsAfter(doc('roleAssignments/' + uid() + '__' + resource.data.role)))
+          && existsAfter(/databases/$(database)/documents/roleAssignments/$(uid() + '__' + resource.data.role)))
         // An administrator edits an unclaimed one (audited).
         || (resource.data.get('claimedBy', null) == null
           && (isSysAdmin() || (isOrgAdminOf(resource.data.get('orgId', null)) && incoming().role == 'worker'
@@ -221,10 +220,10 @@ service cloud.firestore {
         && incoming().level in ['district', 'block', 'zone', 'panchayat', 'location']
         && incoming().provisional is bool
         && ((incoming().level == 'district'
-              && incoming().get('parentId', null) == null && incoming().path == [areaId])
+              && incoming().get('parentId', null) == null && incoming()['path'] == [areaId])
             || (incoming().level != 'district'
               && incoming().parentId is string
-              && incoming().path == get(doc('areas/' + incoming().parentId)).data.path.concat([areaId])))
+              && incoming()['path'] == get(/databases/$(database)/documents/areas/$(incoming().parentId)).data['path'].concat([areaId])))
         && audited('areas/' + areaId);
       allow delete: if false;
     }
@@ -268,7 +267,7 @@ service cloud.firestore {
         && incoming().uid == uid()
         && incoming().email == emailKey()
         && incoming().at == request.time
-        && existsAfter(doc('roleAssignments/' + uid() + '__sys_admin'));
+        && existsAfter(/databases/$(database)/documents/roleAssignments/$(uid() + '__sys_admin'));
       allow update, delete: if false;
     }
 
@@ -297,8 +296,8 @@ service cloud.firestore {
       return parts.size() == 3
         && (sameIstDay(parts, istNow()) || sameIstDay(parts, istNow() - duration.value(1, 'd')));
     }
-    function coversPath(role, path) {
-      return hasRole(role) && assignment(role).data.areaIds.hasAny(path);
+    function coversPath(role, recordAreaPath) {
+      return hasRole(role) && assignment(role).data.areaIds.hasAny(recordAreaPath);
     }
     // Officers see records inside their areas; the Collector the whole district;
     // organisation admins their own organisation; auditors history.
@@ -320,7 +319,7 @@ service cloud.firestore {
         && incoming().keys().hasOnly(['name', 'areaId', 'areaPath', 'kind', 'center', 'radiusM', 'ring', 'provisional', 'auditId'])
         && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 120
         && incoming().areaId is string
-        && incoming().areaPath == get(doc('areas/' + incoming().areaId)).data.path
+        && incoming().areaPath == get(/databases/$(database)/documents/areas/$(incoming().areaId)).data['path']
         && incoming().provisional is bool
         && ((incoming().kind == 'circle'
               && incoming().center is latlng
@@ -380,7 +379,7 @@ service cloud.firestore {
         && validCheckIn(incoming().checkIn)
         && ((incoming().checkIn.get('geofenceId', null) == null && incoming().areaPath == [])
             || (incoming().checkIn.geofenceId is string
-                && incoming().areaPath == get(doc('geofences/' + incoming().checkIn.geofenceId)).data.areaPath
+                && incoming().areaPath == get(/databases/$(database)/documents/geofences/$(incoming().checkIn.geofenceId)).data.areaPath
                 && assignment('worker').data.areaIds.hasAny(incoming().areaPath)));
 
       // Check-out once; the check-in itself can never be edited.
