@@ -85,11 +85,14 @@ class AttendanceRepository {
 
   /// Writes today's check-in. Waits up to 20 seconds for the server; after
   /// that the write stays queued on the phone and is reported as such.
-  Future<SaveOutcome> checkIn(CheckInPreview c, {String? orgId}) {
+  /// [workerName] must be exactly the name on the worker's account (the
+  /// security rules compare them), so officers see a trustworthy name.
+  Future<SaveOutcome> checkIn(CheckInPreview c, {String? orgId, required String workerName}) {
     final m = c.match;
     final placement = m == null ? 'none' : m.result.placement.name;
     final data = {
       'uid': uid,
+      'workerName': workerName,
       'date': dayKey(DateTime.now()),
       'orgId': orgId,
       'areaPath': m?.fence.areaPath ?? const <String>[],

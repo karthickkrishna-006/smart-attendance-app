@@ -7,6 +7,10 @@ import '../../data/session_controller.dart';
 import '../../domain/navigation.dart';
 import '../../domain/policy.dart';
 import '../../domain/roles.dart';
+import '../../data/officer_attendance.dart';
+import '../../domain/attendance.dart';
+import '../../domain/attendance_summary.dart';
+import '../attendance/officer_attendance_screen.dart';
 import '../audit/audit_log_screen.dart';
 import '../profile/profile_screen.dart';
 import '../setup/people_screen.dart';
@@ -61,10 +65,12 @@ class _OfficerShellState extends State<OfficerShell> {
     final role = session.role!;
     switch (section) {
       case Section.overview:
-        return _Overview(session: session);
+        return _Overview(key: ValueKey(role), session: session);
       case Section.employees:
         if (role == Role.sysAdmin || role == Role.orgAdmin) return PeopleScreen(session: session);
         return NotYetBuilt(icon: Icons.groups_outlined, title: s.t('employees'), text: s.t('sectionNext'));
+      case Section.attendance:
+        return OfficerAttendanceScreen(key: ValueKey(role), session: session);
       case Section.setup:
         return SetupScreen(session: session);
       case Section.auditLog:
@@ -174,9 +180,16 @@ class _Header extends StatelessWidget {
 
 /// What this role may do and over which records, read straight from the
 /// permission policy (the same table as Phase 1, section 3).
-class _Overview extends StatelessWidget {
-  const _Overview({required this.session});
+class _Overview extends StatefulWidget {
+  const _Overview({super.key, required this.session});
   final SessionController session;
+  @override
+  State<_Overview> createState() => _OverviewState();
+}
+
+class _OverviewState extends State<_Overview> {
+  SessionController get session => widget.session;
+  late final Stream<List<Map<String, dynamic>>> _today = OfficerAttendance(widget.session).watch(dayKey(DateTime.now()));
 
   static const _capabilityText = <Capability, String>{
     Capability.dashboard: 'See summary figures',
@@ -214,10 +227,24 @@ class _Overview extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = Strings.of(context);
     final caps = session.policy.capabilitiesOf(session.role!);
+    final seesAttendance = session.policy.can(session.role!, Capability.attendanceRecords);
     return ListView(padding: const EdgeInsets.all(20), children: [
       Text(session.titleOf(session.role!), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: AppColors.ink)),
       const SizedBox(height: 10),
       Align(alignment: Alignment.centerLeft, child: ScopeChip(labels: session.scopeLabels, emptyText: s.t('notAssigned'))),
+      if (seesAttendance) ...[
+        const SizedBox(height: 24),
+        Text('${s.t('attendanceTitle')} · ${s.t('today')}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.ink)),
+        const SizedBox(height: 10),
+        StreamBuilder<List<Map<String, dynamic>>>(
+          stream: _today,
+          builder: (context, snap) {
+            if (snap.hasError) return Text('${snap.error}', style: const TextStyle(color: AppColors.danger));
+            if (!snap.hasData) return const LinearProgressIndicator();
+            return AttendanceSummaryTiles(summary: AttendanceSummary.of(snap.data!));
+          },
+        ),
+      ],
       const SizedBox(height: 24),
       Text(s.t('whatYouCanDo'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.ink)),
       const SizedBox(height: 10),

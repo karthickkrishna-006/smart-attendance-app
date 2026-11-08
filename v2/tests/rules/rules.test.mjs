@@ -282,6 +282,7 @@ function istToday(offsetDays = 0) {
 beforeEach(async () => {
   const ra = (uid, role, extra = {}) => ({ uid, role, areaIds: [], active: true, source: 'admin', grantedBy: 'adm', ...extra });
   await seed('areas/b2', { name: 'Block 2', level: 'block', parentId: 'd1', path: ['d1', 'b2'], provisional: true });
+  await seed('accounts/w1', { email: 'w1@x.in', status: 'active', orgId: 'orgA', displayName: 'Worker One' });
   await seed('accounts/sup1', { email: 'sup1@x.in', status: 'active' });
   await seed('roleAssignments/sup1__supervisor', ra('sup1', 'supervisor', { areaIds: ['b1'] }));
   await seed('accounts/sup2', { email: 'sup2@x.in', status: 'active' });
@@ -296,8 +297,9 @@ const checkIn = (extra = {}) => ({
   at: serverTimestamp(), deviceAt: Timestamp.now(), lat: 12.69, lng: 79.97, accuracy: 8, mocked: false,
   geofenceId: 'g1', placement: 'inside', edgeDistanceM: 150, status: 'verified', late: false, reasons: [], eventId: 'e1', ...extra,
 });
+const workerNames = { w1: 'Worker One', w2: '' };
 const session = (uid, extra = {}, ci = {}) => ({
-  uid, date: istToday(), orgId: 'orgA', areaPath: ['d1', 'b1'], evaluatedBy: 'device', createdAt: serverTimestamp(),
+  uid, workerName: workerNames[uid] ?? '', date: istToday(), orgId: 'orgA', areaPath: ['d1', 'b1'], evaluatedBy: 'device', createdAt: serverTimestamp(),
   checkIn: checkIn(ci), ...extra,
 });
 
@@ -328,6 +330,7 @@ test('attendance: one honest record per worker per day', async () => {
   await assertFails(setDoc(doc(w.db, `attendanceSessions/w1_2020-01-01`), session('w1', { date: '2020-01-01' })));      // old date
   await assertFails(setDoc(doc(w.db, `attendanceSessions/w2_${istToday()}`), session('w2')));                          // someone else
   await assertFails(setDoc(doc(w.db, `attendanceSessions/${id}`), session('w1', {}, { at: Timestamp.fromDate(new Date(2020, 0, 1)) }))); // client time
+  await assertFails(setDoc(doc(w.db, `attendanceSessions/${id}`), session('w1', { workerName: 'Someone Else' })));       // fake name
   await assertSucceeds(setDoc(doc(w.db, `attendanceSessions/${id}`), session('w1')));
   await assertFails(setDoc(doc(w.db, `attendanceSessions/${id}`), session('w1')));                                     // duplicate
   // Flagged records are accepted: failed checks never block attendance.
@@ -372,6 +375,11 @@ test('attendance: who can read it', async () => {
   await assertFails(getDocs(query(collection(sup, 'attendanceSessions'), where('areaPath', 'array-contains', 'd1'))));   // whole district
   await assertFails(getDocs(query(collection(sup, 'attendanceSessions'), where('areaPath', 'array-contains', 'b2'))));
   await assertFails(getDocs(collection(sup, 'attendanceSessions')));
+  // The officer attendance screen filters by area AND day.
+  await assertSucceeds(getDocs(query(collection(sup, 'attendanceSessions'), where('areaPath', 'array-contains', 'b1'), where('date', '==', istToday()))));
+  await assertFails(getDocs(query(collection(sup, 'attendanceSessions'), where('areaPath', 'array-contains', 'b2'), where('date', '==', istToday()))));
+  await assertSucceeds(getDocs(query(collection(as('oa', 'oa@firm-a.in').db, 'attendanceSessions'), where('orgId', '==', 'orgA'), where('date', '==', istToday()))));
+  await assertSucceeds(getDocs(query(collection(as('col', 'col@x.in').db, 'attendanceSessions'), where('date', '==', istToday()))));
   // An officer with several areas can query each of them (not only the first).
   await seed('accounts/sup3', { email: 'sup3@x.in', status: 'active' });
   await seed('roleAssignments/sup3__supervisor', { uid: 'sup3', role: 'supervisor', areaIds: ['b9', 'b1'], active: true, source: 'admin', grantedBy: 'adm' });

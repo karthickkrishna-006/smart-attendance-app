@@ -65,7 +65,11 @@ class _WorkerAttendanceScreenState extends State<WorkerAttendanceScreen> {
       if (!mounted) return;
       final ok = await _confirm(preview);
       if (ok != true) return;
-      final outcome = await repo.checkIn(preview, orgId: widget.session.current?.orgId);
+      final outcome = await repo.checkIn(
+        preview,
+        orgId: widget.session.current?.orgId,
+        workerName: (widget.session.account?['displayName'] as String?) ?? '',
+      );
       showToast(outcome == SaveOutcome.saved ? s.t('savedOk') : s.t('savedOffline'),
           kind: outcome == SaveOutcome.saved ? ToastKind.success : ToastKind.info);
     } on LocationProblem catch (p) {

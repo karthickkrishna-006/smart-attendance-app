@@ -389,8 +389,10 @@ service cloud.firestore {
       allow read: if (signedIn() && resource.data.get('uid', null) == uid()) || officerSees(resource.data);
 
       allow create: if hasRole('worker')
-        && incoming().keys().hasOnly(['uid', 'date', 'orgId', 'areaPath', 'checkIn', 'evaluatedBy', 'createdAt'])
+        && incoming().keys().hasOnly(['uid', 'workerName', 'date', 'orgId', 'areaPath', 'checkIn', 'evaluatedBy', 'createdAt'])
         && incoming().uid == uid()
+        // The name officers see must be the name on the worker's own account.
+        && incoming().workerName == get(/databases/$(database)/documents/accounts/$(uid())).data.get('displayName', '')
         && incoming().date is string
         && sessionId == uid() + '_' + incoming().date
         && isRecentIstDate(incoming().date)
