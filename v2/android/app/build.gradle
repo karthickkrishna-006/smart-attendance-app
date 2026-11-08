@@ -35,7 +35,7 @@ if (System.getenv("CI_REQUIRE_CI_DEBUG_SIGNING") == "true" && !ciDebugSigningCon
 }
 
 android {
-    namespace = "in.cit.smartattendance"
+    namespace ="in.cit.smartattendance.v2"
     compileSdk = 35
     ndkVersion = "27.0.12077973"
 
@@ -49,7 +49,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "in.cit.smartattendance"
+        applicationId = "in.cit.smartattendance.v2"
         minSdk = 23
         targetSdk = 35
         versionCode = flutter.versionCode
