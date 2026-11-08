@@ -115,6 +115,17 @@ jobs:
               exit 1
             fi
           done
+          # google-services.json must belong to this app's package; otherwise the
+          # Google Services Gradle plugin fails later with a less clear message.
+          APP_ID="$(sed -n 's/^ *applicationId = "\(.*\)"$/\1/p' android/app/build.gradle)"
+          if [[ "$APP_ID" != "in.cit.smartattendance.v2" ]]; then
+            echo "::error::android/app/build.gradle applicationId is '$APP_ID', expected in.cit.smartattendance.v2."
+            exit 1
+          fi
+          if ! jq -e --arg p "$APP_ID" '[.client[] | select(.client_info.android_client_info.package_name == $p)] | length > 0' android/app/google-services.json >/dev/null; then
+            echo "::error::android/app/google-services.json has no Android app for $APP_ID. In the Firebase console add an Android app with package $APP_ID (and both SHA-1 fingerprints), then download google-services.json again and replace v2/android/app/google-services.json."
+            exit 1
+          fi
           echo "Signing setup OK: no production signing material; build.gradle reads the CI debug signing variables."
 
       - name: Validate and stage CI debug signing key
@@ -160,9 +171,9 @@ jobs:
             echo "::error::Could not read the SHA-1 of the CI debug key."
             exit 1
           fi
-          REGISTERED="$(jq -r '.client[] | select(.client_info.android_client_info.package_name == "in.cit.smartattendance") | .oauth_client[]? | .android_info.certificate_hash // empty' android/app/google-services.json | tr 'A-F' 'a-f' | sort -u)"
+          REGISTERED="$(jq -r '.client[] | select(.client_info.android_client_info.package_name == "in.cit.smartattendance.v2") | .oauth_client[]? | .android_info.certificate_hash // empty' android/app/google-services.json | tr 'A-F' 'a-f' | sort -u)"
           if ! grep -qx "$SHA1" <<< "$REGISTERED"; then
-            echo "::error::The CI debug key's SHA-1 ($SHA1) is not registered for in.cit.smartattendance in google-services.json. Add it in Firebase (Project settings > Your apps > SHA certificate fingerprints) and download google-services.json again."
+            echo "::error::The CI debug key's SHA-1 ($SHA1) is not registered for in.cit.smartattendance.v2 in google-services.json. Add it in Firebase (Project settings > Your apps > SHA certificate fingerprints) and download google-services.json again."
             exit 1
           fi
           echo "CI_DEBUG_CERT_SHA1=$SHA1" >> "$GITHUB_ENV"
@@ -201,7 +212,7 @@ jobs:
           APKSIGNER="$BUILD_TOOLS/apksigner"
           AAPT2="$BUILD_TOOLS/aapt2"
           # SHA-1 fingerprints registered for Google Sign-In in google-services.json
-          REGISTERED="$(jq -r '.client[] | select(.client_info.android_client_info.package_name == "in.cit.smartattendance") | .oauth_client[]? | .android_info.certificate_hash // empty' android/app/google-services.json | tr 'A-F' 'a-f' | sort -u)"
+          REGISTERED="$(jq -r '.client[] | select(.client_info.android_client_info.package_name == "in.cit.smartattendance.v2") | .oauth_client[]? | .android_info.certificate_hash // empty' android/app/google-services.json | tr 'A-F' 'a-f' | sort -u)"
 
           {
             echo "## APK build report (v2)"
@@ -218,8 +229,8 @@ jobs:
             fi
             PKG="$("$AAPT2" dump badging "$APK" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")"
             MINSDK="$("$AAPT2" dump badging "$APK" | sed -n "s/^minSdkVersion:'\([^']*\)'.*/\1/p")"
-            if [[ "$PKG" != "in.cit.smartattendance" ]]; then
-              echo "::error::$SRC has package '$PKG', expected in.cit.smartattendance."
+            if [[ "$PKG" != "in.cit.smartattendance.v2" ]]; then
+              echo "::error::$SRC has package '$PKG', expected in.cit.smartattendance.v2."
               exit 1
             fi
             if ! "$APKSIGNER" verify --print-certs "$APK" > "$RUNNER_TEMP/signer.txt"; then
