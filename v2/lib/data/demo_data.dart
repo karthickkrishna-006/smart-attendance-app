@@ -21,10 +21,12 @@ class DemoData {
     // Saved ONE LEVEL PER BATCH: the security rules check each area against
     // its parent with get(), which sees the database as it was before the
     // batch, so a parent must already be saved before its children.
+    var stage = 0;
     Future<void> save(void Function(AuditedBatch b) fill) async {
+      stage++;
       final b = AuditedBatch(db, user);
       fill(b);
-      await b.commit();
+      await _step('Saving demo areas and boundaries (part $stage)', b.commit);
     }
 
     void area(AuditedBatch b, String id, String name, String level, String? parent, List<String> path) =>
@@ -68,7 +70,12 @@ class DemoData {
       }
     });
 
-    // 2. Today's attendance, tasks and field reports (synthetic).
+    // 2. Remove earlier demo records first. The security rules never allow a
+    //    created record (attendance, task, report, visit) to be overwritten, so
+    //    pressing "Create" again must replace them, not update them.
+    await _step('Removing earlier demo records', clear);
+
+    // 3. Today's attendance, tasks and field reports (synthetic).
     final now = DateTime.now();
     final day = dayKey(now);
     Timestamp at(int h, int m) => Timestamp.fromDate(DateTime(now.year, now.month, now.day, h, m));
@@ -128,7 +135,7 @@ class DemoData {
         if (r.$3 == 'rework') 'reviewNote': 'Photo does not show the street (demo).',
       });
     }
-    await w.commit();
+    await _step('Saving demo attendance, tasks and reports', w.commit);
     final live = db.batch();
     // Live positions, today's routes and street visits for the demo workers.
     for (var i = 0; i < people.length; i++) {
@@ -157,9 +164,18 @@ class DemoData {
         'createdAt': at(9, 6 + i), 'closedAt': p.$6 ? at(12, 41 + i) : null, 'synthetic': true,
       });
     }
-    await live.commit();
+    await _step('Saving demo live positions, routes and street visits', live.commit);
     return 'Demo data created: 4 areas, 2 boundaries, ${people.length} attendance records, ${tasks.length} tasks, '
         '${reports.length} field reports, ${people.length} live positions, routes and street visits.';
+  }
+
+  /// Runs one step; on failure, says which step failed (shown to the admin).
+  static Future<T> _step<T>(String name, Future<T> Function() run) async {
+    try {
+      return await run();
+    } catch (e) {
+      throw 'Step "$name" failed: $e';
+    }
   }
 
   /// Removes the synthetic records. Demo areas and boundaries stay (areas

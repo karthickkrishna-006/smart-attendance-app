@@ -567,3 +567,23 @@ test('street visits: entry for own area boundary, exit added once, visible to of
   await assertFails(getDoc(doc(as('sup2', 'sup2@x.in').db, 'visits/v1')));
   await assertFails(getDoc(doc(admin().db, 'visits/v1')));
 });
+
+test('demo data: "Create" twice must replace, not overwrite; admin removes synthetic records only', async () => {
+  const a = admin().db;
+  const id = `demo-1_${istToday()}`;
+  const demo = { ...session('w1'), uid: 'demo-1', workerName: 'Demo Worker 1', synthetic: true };
+  await assertSucceeds(setDoc(doc(a, `attendanceSessions/${id}`), demo));
+  await assertFails(setDoc(doc(a, `attendanceSessions/${id}`), demo));       // overwrite refused (records are immutable)
+  await assertSucceeds(deleteDoc(doc(a, `attendanceSessions/${id}`)));       // remove first...
+  await assertSucceeds(setDoc(doc(a, `attendanceSessions/${id}`), demo));    // ...then create again
+  const synthetic = { uid: 'demo-1', workerName: 'Demo Worker 1', date: istToday(), orgId: null, areaPath: ['d1', 'b1'], synthetic: true };
+  for (const [col, docId] of [['presence', 'demo-1'], ['routes', `demo-1_${istToday()}`], ['visits', 'demo-v1'], ['activities', 'demo-a1']]) {
+    await seed(`${col}/${docId}`, synthetic);
+    await assertSucceeds(getDocs(query(collection(a, col), where('synthetic', '==', true))));
+    await assertSucceeds(deleteDoc(doc(a, `${col}/${docId}`)));
+  }
+  await seed('tasks/demo-t1', { ...synthetic, title: 'x' });
+  await assertSucceeds(deleteDoc(doc(a, 'tasks/demo-t1')));
+  await seed('visits/real-v1', { ...synthetic, uid: 'w1', synthetic: false });
+  await assertFails(deleteDoc(doc(a, 'visits/real-v1')));                     // never a real record
+});
