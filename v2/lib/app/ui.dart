@@ -180,3 +180,25 @@ class NotYetBuilt extends StatelessWidget {
   @override
   Widget build(BuildContext context) => MessageView(icon: icon, title: title, body: text);
 }
+
+
+/// A visible explanation instead of a silently empty screen.
+class NoticeCard extends StatelessWidget {
+  const NoticeCard({super.key, required this.text, this.icon = Icons.info_outline});
+  final String text;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) => Card(
+        color: const Color(0xFFFFF6E0),
+        margin: const EdgeInsets.only(bottom: 12),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Icon(icon, color: AppColors.turmeric),
+            const SizedBox(width: 10),
+            Expanded(child: Text(text, style: const TextStyle(height: 1.35))),
+          ]),
+        ),
+      );
+}

@@ -514,3 +514,56 @@ test('demo data: synthetic only, removable, never disguised as a real worker', a
   await assertSucceeds(setDoc(doc(a, 'tasks/demoT'), { ...task(), synthetic: true }));
   await assertFails(setDoc(doc(as('zs1', 'zs1@x.in').db, 'tasks/fakeDemo'), task({ synthetic: true })));
 });
+
+// =============================================================== Module 3: live tracking, routes, street visits
+const presence = (uid, extra = {}) => ({
+  uid, workerName: workerNames[uid] ?? '', orgId: uid === 'w1' ? 'orgA' : 'orgB', areaPath: uid === 'w1' ? ['d1', 'b1'] : [],
+  lat: 12.69, lng: 79.97, accuracy: 9, onDuty: true, geofenceId: null, at: serverTimestamp(), synthetic: false, ...extra,
+});
+
+test('live location: own record only; seen by Collector and area officers, not org admins or auditors', async () => {
+  const w1 = as('w1', 'w1@x.in').db;
+  await assertFails(setDoc(doc(w1, 'presence/w1'), presence('w1', { workerName: 'Fake' })));
+  await assertFails(setDoc(doc(w1, 'presence/w1'), presence('w1', { areaPath: ['d1', 'b2'] })));      // not their home area
+  await assertFails(setDoc(doc(w1, 'presence/w2'), presence('w2')));                                  // someone else
+  await assertSucceeds(setDoc(doc(w1, 'presence/w1'), presence('w1')));
+  await assertSucceeds(setDoc(doc(as('w2', 'w2@x.in').db, 'presence/w2'), presence('w2')));        // no area: empty path
+  await assertSucceeds(getDocs(query(collection(as('sup1', 'sup1@x.in').db, 'presence'), where('areaPath', 'array-contains', 'b1'))));
+  await assertFails(getDocs(query(collection(as('sup2', 'sup2@x.in').db, 'presence'), where('areaPath', 'array-contains', 'b1'))));
+  await assertSucceeds(getDocs(collection(as('col', 'col@x.in').db, 'presence')));
+  await assertFails(getDoc(doc(as('oa', 'oa@firm-a.in').db, 'presence/w1')));
+  await assertFails(getDoc(doc(as('aud', 'aud@x.in').db, 'presence/w1')));
+  await assertFails(getDoc(doc(admin().db, 'presence/w1')));
+});
+
+test('routes: own day only; same visibility as live location', async () => {
+  const w1 = as('w1', 'w1@x.in').db;
+  const id = `w1_${istToday()}`;
+  const route = (extra = {}) => ({ uid: 'w1', workerName: 'Worker One', date: istToday(), orgId: 'orgA', areaPath: ['d1', 'b1'],
+    points: [{ lat: 12.69, lng: 79.97, t: Timestamp.now() }], updatedAt: serverTimestamp(), synthetic: false, ...extra });
+  await assertSucceeds(getDoc(doc(w1, `attendanceSessions/w1_${istToday()}`)));
+  await assertSucceeds(getDoc(doc(w1, `routes/${id}`)));                                           // own day, not yet created
+  await assertSucceeds(setDoc(doc(w1, `routes/${id}`), route()));
+  await assertFails(setDoc(doc(w1, 'routes/w1_2020-01-01'), route({ date: '2020-01-01' })));
+  await assertFails(setDoc(doc(w1, `routes/w2_${istToday()}`), route({ uid: 'w2' })));
+  await assertSucceeds(getDoc(doc(as('sup1', 'sup1@x.in').db, `routes/${id}`)));
+  await assertFails(getDoc(doc(as('aud', 'aud@x.in').db, `routes/${id}`)));
+});
+
+test('street visits: entry for own area boundary, exit added once, visible to officers in scope', async () => {
+  const w1 = as('w1', 'w1@x.in').db;
+  const visit = (extra = {}) => ({ uid: 'w1', workerName: 'Worker One', date: istToday(), orgId: 'orgA', areaPath: ['d1', 'b1'],
+    geofenceId: 'g1', geofenceName: 'Test fence 1', enteredAt: Timestamp.fromMillis(Date.now() - 600000), exitedAt: null,
+    durationMin: null, createdAt: serverTimestamp(), closedAt: null, synthetic: false, ...extra });
+  await assertFails(setDoc(doc(w1, 'visits/v0'), visit({ geofenceId: 'g2', areaPath: ['d1', 'b2'] })));   // not their area
+  await assertFails(setDoc(doc(w1, 'visits/v0'), visit({ exitedAt: Timestamp.now() })));                 // exit comes later
+  await assertSucceeds(setDoc(doc(w1, 'visits/v1'), visit()));
+  await assertFails(updateDoc(doc(w1, 'visits/v1'), { enteredAt: Timestamp.now() }));
+  await assertFails(updateDoc(doc(w1, 'visits/v1'), { exitedAt: Timestamp.fromMillis(Date.now() - 900000), durationMin: 0, closedAt: serverTimestamp() })); // before entry
+  await assertSucceeds(updateDoc(doc(w1, 'visits/v1'), { exitedAt: Timestamp.now(), durationMin: 10, closedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(w1, 'visits/v1'), { exitedAt: Timestamp.now(), durationMin: 11, closedAt: serverTimestamp() }));
+  await assertSucceeds(getDocs(query(collection(as('sup1', 'sup1@x.in').db, 'visits'), where('areaPath', 'array-contains', 'b1'), where('date', '==', istToday()))));
+  await assertSucceeds(getDoc(doc(as('oa', 'oa@firm-a.in').db, 'visits/v1')));
+  await assertFails(getDoc(doc(as('sup2', 'sup2@x.in').db, 'visits/v1')));
+  await assertFails(getDoc(doc(admin().db, 'visits/v1')));
+});

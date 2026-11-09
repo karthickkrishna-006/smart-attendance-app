@@ -569,6 +569,94 @@ service cloud.firestore {
       allow delete: if isSysAdmin() && resource.data.get('synthetic', false) == true;
     }
 
+    // ---------------------------------------------------------- live tracking
+    // Live location and routes: Collector (district) and the AD, Zonal
+    // Secretary and Supervisor covering the worker's area. Not organisation
+    // admins or auditors (Phase 1: no live location for them).
+    function liveSees(d) {
+      return hasRole('collector')
+        || coversPath('officer', d.areaPath)
+        || coversPath('zonal_secretary', d.areaPath)
+        || coversPath('supervisor', d.areaPath);
+    }
+    // The worker's home area path: their first assigned area, or [] if none.
+    function homePathOk(path) {
+      return (assignment('worker').data.areaIds.size() == 0 && path == [])
+        || (assignment('worker').data.areaIds.size() > 0
+            && path == get(/databases/$(database)/documents/areas/$(assignment('worker').data.areaIds[0])).data['path']);
+    }
+    function ownWorkerRecord(d) {
+      return hasRole('worker')
+        && d.uid == uid()
+        && d.workerName == get(/databases/$(database)/documents/accounts/$(uid())).data.get('displayName', '')
+        && d.get('orgId', null) == assignment('worker').data.get('orgId', null)
+        && d.synthetic == false;
+    }
+
+    // presence/{uid}: the latest position while on duty.
+    match /presence/{presenceId} {
+      allow read: if (signedIn() && presenceId == uid())
+        || liveSees(resource.data)
+        || (isSysAdmin() && resource.data.get('synthetic', false) == true);
+      allow create, update: if (isSysAdmin() && demoRecord() && presenceId == incoming().uid)
+        || (presenceId == uid()
+          && incoming().keys().hasOnly(['uid', 'workerName', 'orgId', 'areaPath', 'lat', 'lng', 'accuracy', 'onDuty',
+                                        'geofenceId', 'at', 'synthetic'])
+          && ownWorkerRecord(incoming())
+          && homePathOk(incoming().areaPath)
+          && incoming().lat is number && incoming().lat >= -90 && incoming().lat <= 90
+          && incoming().lng is number && incoming().lng >= -180 && incoming().lng <= 180
+          && incoming().accuracy is number
+          && incoming().onDuty is bool
+          && incoming().at == request.time);
+      allow delete: if isSysAdmin() && resource.data.get('synthetic', false) == true;
+    }
+
+    // routes/{uid}_{yyyy-MM-dd}: the day's path (points added while on duty).
+    match /routes/{routeId} {
+      allow read: if (signedIn() && resource == null && routeId.matches(uid() + '_[0-9]{4}-[0-9]{2}-[0-9]{2}'))
+        || (signedIn() && resource.data.get('uid', null) == uid())
+        || liveSees(resource.data)
+        || (isSysAdmin() && resource.data.get('synthetic', false) == true);
+      allow create, update: if (isSysAdmin() && demoRecord())
+        || (routeId == uid() + '_' + incoming().date
+          && incoming().keys().hasOnly(['uid', 'workerName', 'date', 'orgId', 'areaPath', 'points', 'updatedAt', 'synthetic'])
+          && ownWorkerRecord(incoming())
+          && homePathOk(incoming().areaPath)
+          && incoming().date is string && isRecentIstDate(incoming().date)
+          && incoming().points is list && incoming().points.size() <= 3000
+          && incoming().updatedAt == request.time);
+      allow delete: if isSysAdmin() && resource.data.get('synthetic', false) == true;
+    }
+
+    // visits/{id}: entry and exit of a street boundary, recorded automatically
+    // while on duty. Officers in scope see them (including organisation
+    // admins and auditors); the worker's app does not show them.
+    match /visits/{visitId} {
+      allow read: if (signedIn() && resource.data.get('uid', null) == uid())
+        || officerSees(resource.data)
+        || (isSysAdmin() && resource.data.get('synthetic', false) == true);
+      allow create: if (isSysAdmin() && demoRecord())
+        || (incoming().keys().hasOnly(['uid', 'workerName', 'date', 'orgId', 'areaPath', 'geofenceId', 'geofenceName',
+                                       'enteredAt', 'exitedAt', 'durationMin', 'createdAt', 'closedAt', 'synthetic'])
+          && ownWorkerRecord(incoming())
+          && incoming().date is string && isRecentIstDate(incoming().date)
+          && incoming().geofenceId is string
+          && incoming().areaPath == get(/databases/$(database)/documents/geofences/$(incoming().geofenceId)).data.areaPath
+          && assignment('worker').data.areaIds.hasAny(incoming().areaPath)
+          && incoming().enteredAt is timestamp
+          && incoming().exitedAt == null && incoming().durationMin == null && incoming().closedAt == null
+          && incoming().createdAt == request.time);
+      // The exit is added once; nothing else ever changes.
+      allow update: if signedIn() && resource.data.uid == uid()
+        && resource.data.exitedAt == null
+        && changed().hasOnly(['exitedAt', 'durationMin', 'closedAt'])
+        && incoming().exitedAt is timestamp && incoming().exitedAt >= resource.data.enteredAt
+        && incoming().durationMin is number && incoming().durationMin >= 0
+        && incoming().closedAt == request.time;
+      allow delete: if isSysAdmin() && resource.data.get('synthetic', false) == true;
+    }
+
     // Everything else is closed.
     match /{document=**} {
       allow read, write: if false;

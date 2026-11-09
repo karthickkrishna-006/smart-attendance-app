@@ -5,6 +5,7 @@ import '../../app/strings.dart';
 import '../../app/theme.dart';
 import '../../app/ui.dart';
 import '../../data/officer_attendance.dart';
+import '../../data/scoped.dart';
 import '../../data/session_controller.dart';
 import '../../domain/attendance.dart';
 import '../../domain/attendance_summary.dart';
@@ -161,6 +162,7 @@ class _OfficerAttendanceScreenState extends State<OfficerAttendanceScreen> {
             IconButton(tooltip: s.t('nextDay'), onPressed: _isToday ? null : () => _shift(1), icon: const Icon(Icons.chevron_right)),
           ]),
           const SizedBox(height: 8),
+          if (scopeProblem(widget.session) != null) NoticeCard(text: scopeProblem(widget.session)!),
           if (snap.hasError)
             MessageView(icon: Icons.cloud_off_outlined, title: s.t('errorTitle'), body: '${snap.error}')
           else if (all == null)

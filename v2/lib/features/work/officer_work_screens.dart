@@ -4,6 +4,7 @@ import '../../app/strings.dart';
 import '../../app/theme.dart';
 import '../../app/ui.dart';
 import '../../data/officer_attendance.dart';
+import '../../data/scoped.dart';
 import '../../data/session_controller.dart';
 import '../../data/work_repository.dart';
 import '../../domain/attendance.dart';
@@ -141,6 +142,7 @@ class _OfficerActivitiesScreenState extends State<OfficerActivitiesScreen> {
                 _day = d;
                 _stream = repo.watchActivities(dayKey(d));
               })),
+          if (scopeProblem(widget.session) != null) NoticeCard(text: scopeProblem(widget.session)!),
           Wrap(spacing: 8, children: [
             for (final f in const ['all', 'submitted', 'approved', 'rework', 'rejected'])
               ChoiceChip(
@@ -310,6 +312,7 @@ class _OfficerTasksScreenState extends State<OfficerTasksScreen> {
               };
           final shown = all.where(keep).toList();
           return ListView(padding: const EdgeInsets.fromLTRB(16, 12, 16, 96), children: [
+            if (scopeProblem(widget.session) != null) NoticeCard(text: scopeProblem(widget.session)!),
             Wrap(spacing: 8, children: [
               for (final f in const [('open', 'Open'), ('review', 'Waiting for review'), ('done', 'Done / cancelled')])
                 ChoiceChip(label: Text(f.$2), selected: _filter == f.$1, onSelected: (_) => setState(() => _filter = f.$1)),
@@ -413,6 +416,7 @@ class _AlertsScreenState extends State<AlertsScreen> {
                   '${t['title']}: due ${t['dueDate']}',
             ];
             return ListView(padding: const EdgeInsets.all(16), children: [
+              if (scopeProblem(widget.session) != null) NoticeCard(text: scopeProblem(widget.session)!),
               _section('Attendance to check today', Icons.flag_outlined, AppColors.turmeric, flagged),
               _section('Field reports waiting for review', Icons.photo_library_outlined, AppColors.indigo, waiting),
               _section('Overdue tasks', Icons.schedule, AppColors.danger, overdue),

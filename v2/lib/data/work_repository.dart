@@ -87,7 +87,7 @@ class WorkRepository {
       .map((s) => s.docs.map((d) => {...d.data(), 'id': d.id}).toList()..sort(newestFirst('createdAt')));
 
   Stream<List<Map<String, dynamic>>> watchActivities(String day) =>
-      watchMerged(scopedQueries(session, 'activities', day: day), sort: newestFirst('createdAt'));
+      watchScoped(session, 'activities', day: day, sort: newestFirst('createdAt'));
 
   Future<Uint8List?> photo(String activityId, int index) async {
     final d = await db.doc('activityPhotos/${activityId}_$index').get();

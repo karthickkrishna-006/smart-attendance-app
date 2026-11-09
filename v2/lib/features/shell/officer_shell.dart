@@ -11,7 +11,9 @@ import '../../data/officer_attendance.dart';
 import '../../domain/attendance.dart';
 import '../../domain/attendance_summary.dart';
 import '../attendance/officer_attendance_screen.dart';
+import '../../data/scoped.dart';
 import '../audit/audit_log_screen.dart';
+import '../monitor/monitor_screens.dart';
 import '../work/officer_work_screens.dart';
 import '../profile/profile_screen.dart';
 import '../setup/people_screen.dart';
@@ -69,7 +71,12 @@ class _OfficerShellState extends State<OfficerShell> {
         return _Overview(key: ValueKey(role), session: session);
       case Section.employees:
         if (role == Role.sysAdmin || role == Role.orgAdmin) return PeopleScreen(session: session);
-        return NotYetBuilt(icon: Icons.groups_outlined, title: s.t('employees'), text: s.t('sectionNext'));
+        return const MessageView(
+          icon: Icons.groups_outlined,
+          title: 'Workers in your zone',
+          body: 'In this version the System administrator adds workers and assigns them to streets (Employees and Setup → Access). '
+              'You see your zone\'s workers in Attendance, Live monitoring and Coverage, and assign their work in Tasks.',
+        );
       case Section.attendance:
         return OfficerAttendanceScreen(key: ValueKey(role), session: session);
       case Section.fieldActivities:
@@ -78,6 +85,12 @@ class _OfficerShellState extends State<OfficerShell> {
         return OfficerTasksScreen(key: ValueKey(role), session: session);
       case Section.alerts:
         return AlertsScreen(key: ValueKey(role), session: session);
+      case Section.liveMonitoring:
+        return LiveMonitoringScreen(key: ValueKey(role), session: session);
+      case Section.coverage:
+        return CoverageScreen(key: ValueKey(role), session: session);
+      case Section.reports:
+        return ReportsScreen(key: ValueKey(role), session: session);
       case Section.setup:
         return SetupScreen(session: session);
       case Section.auditLog:
@@ -239,6 +252,7 @@ class _OverviewState extends State<_Overview> {
       Text(session.titleOf(session.role!), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: AppColors.ink)),
       const SizedBox(height: 10),
       Align(alignment: Alignment.centerLeft, child: ScopeChip(labels: session.scopeLabels, emptyText: s.t('notAssigned'))),
+      if (scopeProblem(session) != null) ...[const SizedBox(height: 12), NoticeCard(text: scopeProblem(session)!)],
       if (seesAttendance) ...[
         const SizedBox(height: 24),
         Text('${s.t('attendanceTitle')} · ${s.t('today')}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.ink)),

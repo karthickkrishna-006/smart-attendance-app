@@ -8,6 +8,13 @@
          app is open). No background location is requested. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Field duty: location continues while the phone is locked, ONLY between
+         Start duty and Stop duty, always with a visible notification.
+         ACCESS_BACKGROUND_LOCATION is deliberately not requested. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application
         android:label="Smart Attendance"

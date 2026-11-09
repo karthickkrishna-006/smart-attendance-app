@@ -165,6 +165,13 @@ class Strings {
     'recentWork': 'Recent reports',
     'attendanceDone': 'Attendance marked',
     'attendanceNotDone': 'Attendance not marked yet',
+    'dutyTitle': 'Field duty',
+    'dutyOff': 'Duty is off. Start it when you begin field work: your attendance and streets are then recorded automatically.',
+    'dutyOn': 'Duty is on since {time}. Your location is recorded until you stop.',
+    'startDuty': 'Start duty',
+    'stopDuty': 'Stop duty',
+    'dutyStarted': 'Duty started. A notification shows while it runs.',
+    'dutyStopped': 'Duty stopped.',
   };
 
   static const _ta = <String, String>{
@@ -312,6 +319,13 @@ class Strings {
     'recentWork': 'சமீபத்திய அறிக்கைகள்',
     'attendanceDone': 'வருகை பதிவு செய்யப்பட்டது',
     'attendanceNotDone': 'வருகை இன்னும் பதிவு செய்யப்படவில்லை',
+    'dutyTitle': 'களப் பணி',
+    'dutyOff': 'பணி நிறுத்தத்தில் உள்ளது. களப் பணியைத் தொடங்கும்போது இதைத் தொடங்குங்கள்: அப்போது உங்கள் வருகையும் தெருக்களும் தானாகப் பதிவு செய்யப்படும்.',
+    'dutyOn': '{time} முதல் பணி இயங்குகிறது. நீங்கள் நிறுத்தும் வரை உங்கள் இருப்பிடம் பதிவு செய்யப்படும்.',
+    'startDuty': 'பணியைத் தொடங்கு',
+    'stopDuty': 'பணியை நிறுத்து',
+    'dutyStarted': 'பணி தொடங்கியது. இயங்கும்போது ஒரு அறிவிப்பு காட்டப்படும்.',
+    'dutyStopped': 'பணி நிறுத்தப்பட்டது.',
   };
 
   /// Keys present in English but missing in Tamil (checked by a unit test).

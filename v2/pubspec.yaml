@@ -22,6 +22,9 @@ dependencies:
   geolocator: ^13.0.2
   # Module 2: photos for field activities (camera; compressed by the picker).
   image_picker: ^1.1.2
+  # Live map (OpenStreetMap tiles) and routes.
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
 
 dev_dependencies:
   flutter_test:

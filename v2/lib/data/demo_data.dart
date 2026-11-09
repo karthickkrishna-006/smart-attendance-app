@@ -14,7 +14,7 @@ class DemoData {
   final User user;
   final FirebaseFirestore db;
 
-  static const _collections = ['attendanceSessions', 'tasks', 'activities'];
+  static const _collections = ['attendanceSessions', 'tasks', 'activities', 'presence', 'routes', 'visits'];
 
   Future<String> generate({double lat = 12.6919, double lng = 79.9762}) async {
     // 1. Demo areas under the first district (or a demo district).
@@ -129,7 +129,37 @@ class DemoData {
       });
     }
     await w.commit();
-    return 'Demo data created: 4 areas, 2 boundaries, ${people.length} attendance records, ${tasks.length} tasks, ${reports.length} field reports.';
+    final live = db.batch();
+    // Live positions, today's routes and street visits for the demo workers.
+    for (var i = 0; i < people.length; i++) {
+      final p = people.elementAt(i);
+      final uid = 'demo-w${i + 1}';
+      final path = streets.elementAt(p.$2);
+      final baseLat = lat + p.$2 * 0.004, baseLng = lng + p.$2 * 0.004;
+      live.set(db.doc('presence/$uid'), {
+        'uid': uid, 'workerName': p.$1, 'orgId': null, 'areaPath': path,
+        'lat': baseLat + 0.0003 * (i - 2), 'lng': baseLng + 0.0002 * (i - 2), 'accuracy': 8.0,
+        'onDuty': !p.$6, 'geofenceId': p.$6 ? null : 'demo-fence-${p.$2 + 1}',
+        'at': Timestamp.fromDate(now.subtract(Duration(minutes: p.$6 ? 90 : 2 + i))), 'synthetic': true,
+      });
+      live.set(db.doc('routes/${uid}_$day'), {
+        'uid': uid, 'workerName': p.$1, 'date': day, 'orgId': null, 'areaPath': path, 'synthetic': true,
+        'updatedAt': Timestamp.fromDate(now),
+        'points': [
+          for (var k = 0; k < 12; k++)
+            {'lat': baseLat - 0.003 + k * 0.00025 + 0.0003 * (i - 2), 'lng': baseLng - 0.002 + k * 0.00018, 't': at(9, k * 5)},
+        ],
+      });
+      live.set(db.doc('visits/demo-visit-${i + 1}'), {
+        'uid': uid, 'workerName': p.$1, 'date': day, 'orgId': null, 'areaPath': path,
+        'geofenceId': 'demo-fence-${p.$2 + 1}', 'geofenceName': 'Demo Street ${p.$2 + 1} boundary',
+        'enteredAt': at(9, 5 + i), 'exitedAt': p.$6 ? at(12, 40 + i) : null, 'durationMin': p.$6 ? 215 : null,
+        'createdAt': at(9, 6 + i), 'closedAt': p.$6 ? at(12, 41 + i) : null, 'synthetic': true,
+      });
+    }
+    await live.commit();
+    return 'Demo data created: 4 areas, 2 boundaries, ${people.length} attendance records, ${tasks.length} tasks, '
+        '${reports.length} field reports, ${people.length} live positions, routes and street visits.';
   }
 
   /// Removes the synthetic records. Demo areas and boundaries stay (areas

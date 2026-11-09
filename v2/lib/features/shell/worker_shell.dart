@@ -5,6 +5,8 @@ import '../../app/theme.dart';
 import '../../app/ui.dart';
 import '../../data/session_controller.dart';
 import '../../data/attendance_repository.dart';
+import '../../data/duty_service.dart';
+import '../../data/location.dart';
 import '../../data/work_repository.dart';
 import '../attendance/worker_attendance_screen.dart';
 import '../work/worker_work_screens.dart';
@@ -88,6 +90,56 @@ class _WorkerHomeState extends State<_WorkerHome> {
         Text('${s.t('organisation')}: ${session.orgName}', style: const TextStyle(color: AppColors.muted, fontSize: 15)),
       ],
       const SizedBox(height: 20),
+      ListenableBuilder(
+        listenable: DutyService.instance,
+        builder: (context, _) {
+          final duty = DutyService.instance;
+          final since = duty.startedAt;
+          return Card(
+            color: duty.onDuty ? const Color(0xFFE3EFE9) : Colors.white,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Row(children: [
+                  Icon(duty.onDuty ? Icons.directions_walk : Icons.pause_circle_outline, color: duty.onDuty ? AppColors.green : AppColors.muted),
+                  const SizedBox(width: 8),
+                  Text(s.t('dutyTitle'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                ]),
+                const SizedBox(height: 8),
+                Text(duty.onDuty && since != null
+                    ? s.t('dutyOn', {'time': '${since.hour.toString().padLeft(2, '0')}:${since.minute.toString().padLeft(2, '0')}'})
+                    : s.t('dutyOff')),
+                if (duty.lastError != null) Padding(padding: const EdgeInsets.only(top: 6), child: Text(duty.lastError!, style: const TextStyle(color: AppColors.danger, fontSize: 13))),
+                const SizedBox(height: 12),
+                duty.onDuty
+                    ? OutlinedButton.icon(
+                        onPressed: () async {
+                          await duty.stop();
+                          showToast(s.t('dutyStopped'), kind: ToastKind.success);
+                        },
+                        icon: const Icon(Icons.stop_circle_outlined),
+                        label: Text(s.t('stopDuty')),
+                      )
+                    : FilledButton.icon(
+                        onPressed: () async {
+                          try {
+                            await duty.start(session);
+                            showToast(s.t('dutyStarted'), kind: ToastKind.success);
+                          } on LocationProblem catch (e) {
+                            showToast(e.message, kind: ToastKind.error);
+                          } catch (e) {
+                            showToast('$e', kind: ToastKind.error);
+                          }
+                        },
+                        icon: const Icon(Icons.play_arrow),
+                        label: Text(s.t('startDuty')),
+                      ),
+              ]),
+            ),
+          );
+        },
+      ),
+      const SizedBox(height: 12),
       Text(s.t('todayAtGlance'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
       const SizedBox(height: 8),
       StreamBuilder<Map<String, dynamic>?>(

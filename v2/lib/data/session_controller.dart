@@ -10,6 +10,7 @@ import '../domain/roles.dart';
 import '../domain/session.dart';
 import 'audited_batch.dart';
 import 'auth_service.dart';
+import 'duty_service.dart';
 
 enum SessionPhase { loading, signedOut, ready, needsEmailVerification, notRegistered, disabled, error }
 
@@ -123,6 +124,7 @@ class SessionController extends ChangeNotifier {
   Future<void> signOut() async {
     final u = user;
     if (u != null) unawaited(logEvent(db, u, 'sign_out', 'auth'));
+    if (DutyService.instance.onDuty) await DutyService.instance.stop();
     _stopWatching();
     await AuthService.signOut();
   }
