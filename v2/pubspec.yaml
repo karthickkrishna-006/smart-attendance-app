@@ -20,6 +20,8 @@ dependencies:
   google_sign_in: ^6.2.2
   # Phase 5.2 attendance: one GPS fix when the worker marks attendance.
   geolocator: ^13.0.2
+  # Module 2: photos for field activities (camera; compressed by the picker).
+  image_picker: ^1.1.2
 
 dev_dependencies:
   flutter_test:

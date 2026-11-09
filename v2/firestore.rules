@@ -386,9 +386,16 @@ service cloud.firestore {
       // For queries, rules are checked against the query's filters, where only
       // filtered fields exist; get('uid', null) keeps the officer branch
       // evaluable. A missing uid yields null, which never equals a signed-in uid.
-      allow read: if (signedIn() && resource.data.get('uid', null) == uid()) || officerSees(resource.data);
+      // A worker may look up their own day's record before it exists (the id is
+      // <uid>_<yyyy-MM-dd>); otherwise only existing own records or the
+      // officer scopes. The System administrator sees synthetic demo data only.
+      allow read: if (signedIn() && resource == null && sessionId.matches(uid() + '_[0-9]{4}-[0-9]{2}-[0-9]{2}'))
+        || (signedIn() && resource.data.get('uid', null) == uid())
+        || officerSees(resource.data)
+        || (isSysAdmin() && resource.data.get('synthetic', false) == true);
 
-      allow create: if hasRole('worker')
+      allow create: if (isSysAdmin() && demoRecord())
+        || hasRole('worker')
         && incoming().keys().hasOnly(['uid', 'workerName', 'date', 'orgId', 'areaPath', 'checkIn', 'evaluatedBy', 'createdAt'])
         && incoming().uid == uid()
         // The name officers see must be the name on the worker's own account.
@@ -412,7 +419,154 @@ service cloud.firestore {
         && incoming().updatedAt == request.time
         && validCheckOut(incoming().checkOut);
 
-      allow delete: if false;
+      allow delete: if isSysAdmin() && resource.data.get('synthetic', false) == true;
+    }
+
+    // ------------------------------------------------------ demo data helpers
+    // Synthetic demo records: created and removed only by the System
+    // administrator, always marked synthetic, always carrying an area path so
+    // the normal officer scopes apply to them.
+    function demoRecord() {
+      return incoming().get('synthetic', false) == true
+        && incoming().areaPath is list && incoming().areaPath.size() > 0
+        && incoming().uid is string && incoming().uid.matches('demo-.*');
+    }
+
+    // Who may create tasks in an area (Phase 1, section 3; switches in config).
+    function mayCreateTaskIn(path) {
+      return coversPath('officer', path)
+        || coversPath('zonal_secretary', path)
+        || (exists(/databases/$(database)/documents/config/app)
+            && get(/databases/$(database)/documents/config/app).data.get('supervisorsMayCreateTasks', false) == true
+            && coversPath('supervisor', path))
+        || (exists(/databases/$(database)/documents/config/app)
+            && get(/databases/$(database)/documents/config/app).data.get('collectorMayAssignTasks', false) == true
+            && hasRole('collector'));
+    }
+    // Who may review work in an area: AD, Zonal Secretary, supervisor.
+    function mayReviewIn(path) {
+      return coversPath('officer', path) || coversPath('zonal_secretary', path) || coversPath('supervisor', path);
+    }
+    function workerCovers(path) {
+      return hasRole('worker') && inAreas(assignment('worker').data.areaIds, path);
+    }
+
+    // ------------------------------------------------------------------ tasks
+    // Work assigned to an AREA (a street, panchayat or block): every worker
+    // assigned there sees it. statuses: assigned, in_progress, submitted,
+    // approved, rework, cancelled.
+    match /tasks/{taskId} {
+      allow read: if officerSees(resource.data)
+        || workerCovers(resource.data.areaPath)
+        || (isSysAdmin() && resource.data.get('synthetic', false) == true);
+
+      allow create: if (isSysAdmin() && incoming().get('synthetic', false) == true
+                         && incoming().areaPath is list && incoming().areaPath.size() > 0)
+        || (incoming().keys().hasOnly(['title', 'description', 'areaId', 'areaPath', 'priority', 'dueDate', 'status',
+                                       'createdBy', 'createdByName', 'createdAt', 'updatedAt', 'synthetic'])
+            && incoming().title is string && incoming().title.size() > 0 && incoming().title.size() <= 120
+            && incoming().description is string && incoming().description.size() <= 2000
+            && incoming().areaId is string
+            && incoming().areaPath == get(/databases/$(database)/documents/areas/$(incoming().areaId)).data['path']
+            && incoming().priority in ['low', 'normal', 'high']
+            && incoming().dueDate is string && incoming().dueDate.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+            && incoming().status == 'assigned'
+            && incoming().createdBy == uid()
+            && incoming().createdAt == request.time && incoming().updatedAt == request.time
+            && incoming().synthetic == false
+            && mayCreateTaskIn(incoming().areaPath));
+
+      allow update: if
+        // A worker in the area starts it or submits it.
+        (workerCovers(resource.data.areaPath)
+          && changed().hasOnly(['status', 'updatedAt'])
+          && incoming().updatedAt == request.time
+          && ((resource.data.status in ['assigned'] && incoming().status == 'in_progress')
+              || (resource.data.status in ['assigned', 'in_progress', 'rework'] && incoming().status == 'submitted')))
+        // A reviewer in the area approves, sends back or cancels it.
+        || (mayReviewIn(resource.data.areaPath)
+          && changed().hasOnly(['status', 'updatedAt', 'reviewNote', 'reviewedBy'])
+          && incoming().updatedAt == request.time
+          && incoming().get('reviewedBy', uid()) == uid()
+          && incoming().status in ['approved', 'rework', 'cancelled', 'assigned']);
+
+      allow delete: if isSysAdmin() && resource.data.get('synthetic', false) == true;
+    }
+
+    // ------------------------------------------------------------- activities
+    // Field work reported by a worker with photos (activityPhotos) and GPS.
+    function activityAreaOk(d) {
+      return (d.get('taskId', null) is string
+              && d.areaPath == get(/databases/$(database)/documents/tasks/$(d.taskId)).data.areaPath
+              && inAreas(assignment('worker').data.areaIds, d.areaPath))
+        || (d.get('taskId', null) == null && d.get('geofenceId', null) is string
+              && d.areaPath == get(/databases/$(database)/documents/geofences/$(d.geofenceId)).data.areaPath
+              && assignment('worker').data.areaIds.hasAny(d.areaPath))
+        || (d.get('taskId', null) == null && d.get('geofenceId', null) == null && d.areaPath == []);
+    }
+    match /activities/{activityId} {
+      allow read: if (signedIn() && resource.data.get('uid', null) == uid())
+        || officerSees(resource.data)
+        || (isSysAdmin() && resource.data.get('synthetic', false) == true);
+
+      allow create: if (isSysAdmin() && demoRecord())
+        || (hasRole('worker')
+          && incoming().keys().hasOnly(['uid', 'workerName', 'date', 'orgId', 'areaPath', 'taskId', 'geofenceId', 'title',
+                                        'description', 'lat', 'lng', 'accuracy', 'mocked', 'placement', 'capturedAt',
+                                        'photoCount', 'status', 'evaluatedBy', 'createdAt', 'synthetic'])
+          && incoming().uid == uid()
+          && incoming().workerName == get(/databases/$(database)/documents/accounts/$(uid())).data.get('displayName', '')
+          && incoming().date is string && isRecentIstDate(incoming().date)
+          && incoming().get('orgId', null) == assignment('worker').data.get('orgId', null)
+          && incoming().title is string && incoming().title.size() > 0 && incoming().title.size() <= 120
+          && incoming().description is string && incoming().description.size() <= 2000
+          && (incoming().lat == null || (incoming().lat is number && incoming().lat >= -90 && incoming().lat <= 90))
+          && (incoming().lng == null || (incoming().lng is number && incoming().lng >= -180 && incoming().lng <= 180))
+          && incoming().mocked is bool
+          && incoming().placement in ['inside', 'outside', 'uncertain', 'none']
+          && incoming().capturedAt is timestamp
+          && incoming().photoCount is int && incoming().photoCount >= 1 && incoming().photoCount <= 3
+          && incoming().status == 'submitted'
+          && incoming().evaluatedBy == 'device'
+          && incoming().createdAt == request.time
+          && incoming().synthetic == false
+          && activityAreaOk(incoming())
+          // Every photo it claims was saved in this same batch.
+          && existsAfter(/databases/$(database)/documents/activityPhotos/$(activityId + '_0'))
+          && (incoming().photoCount < 2 || existsAfter(/databases/$(database)/documents/activityPhotos/$(activityId + '_1')))
+          && (incoming().photoCount < 3 || existsAfter(/databases/$(database)/documents/activityPhotos/$(activityId + '_2'))));
+
+      // Reviewers in the area decide; the worker's report itself never changes.
+      allow update: if mayReviewIn(resource.data.areaPath)
+        && resource.data.uid != uid()
+        && changed().hasOnly(['status', 'reviewNote', 'reviewedBy', 'reviewedByName', 'reviewedAt'])
+        && incoming().status in ['approved', 'rejected', 'rework']
+        && incoming().reviewedBy == uid()
+        && incoming().reviewedAt == request.time
+        && incoming().reviewNote is string && incoming().reviewNote.size() <= 500
+        && (incoming().status == 'approved' || incoming().reviewNote.size() > 0);
+
+      allow delete: if isSysAdmin() && resource.data.get('synthetic', false) == true;
+    }
+
+    // Photos, compressed, one per document (free plan; at most 3 per activity).
+    match /activityPhotos/{photoId} {
+      allow get: if (signedIn() && resource != null && resource.data.uid == uid())
+        || (resource != null && officerSees(get(/databases/$(database)/documents/activities/$(resource.data.activityId)).data))
+        || (isSysAdmin() && resource != null && resource.data.get('synthetic', false) == true);
+      allow create: if hasRole('worker')
+        && incoming().keys().hasOnly(['uid', 'activityId', 'index', 'jpeg', 'sizeBytes', 'createdAt', 'synthetic'])
+        && incoming().uid == uid()
+        && incoming().index is int && incoming().index >= 0 && incoming().index <= 2
+        && photoId == incoming().activityId + '_' + string(incoming().index)
+        && incoming().jpeg is bytes && incoming().jpeg.size() > 0 && incoming().jpeg.size() <= 700 * 1024
+        && incoming().sizeBytes == incoming().jpeg.size()
+        && incoming().createdAt == request.time
+        && incoming().synthetic == false
+        && !exists(/databases/$(database)/documents/activities/$(incoming().activityId))
+        && getAfter(/databases/$(database)/documents/activities/$(incoming().activityId)).data.uid == uid();
+      allow update: if false;
+      allow delete: if isSysAdmin() && resource.data.get('synthetic', false) == true;
     }
 
     // Everything else is closed.

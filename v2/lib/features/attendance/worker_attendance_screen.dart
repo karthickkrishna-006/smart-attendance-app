@@ -158,7 +158,7 @@ class _WorkerAttendanceScreenState extends State<WorkerAttendanceScreen> {
     return StreamBuilder<Map<String, dynamic>?>(
       stream: repo.watchToday(),
       builder: (context, snap) {
-        if (snap.hasError) return MessageView(icon: Icons.cloud_off_outlined, title: s.t('errorTitle'), body: '${snap.error}');
+        if (snap.hasError) return MessageView(icon: Icons.cloud_off_outlined, title: s.t('attendanceTitle'), body: '${snap.error}');
         if (snap.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
         final day = snap.data;
         final ci = day?['checkIn'] as Map<String, dynamic>?;

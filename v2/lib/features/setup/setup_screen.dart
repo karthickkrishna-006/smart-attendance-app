@@ -6,6 +6,7 @@ import '../../data/directory.dart';
 import '../../data/session_controller.dart';
 import '../../domain/area.dart';
 import '../../domain/roles.dart';
+import 'demo_tab.dart';
 import 'geofences_tab.dart';
 import 'scope_picker.dart';
 
@@ -20,7 +21,7 @@ class SetupScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final dir = Directory(session.user!);
     return DefaultTabController(
-      length: 5,
+      length: 6,
       child: Column(children: [
         const TabBar(isScrollable: true, tabs: [
           Tab(text: 'Areas'),
@@ -28,6 +29,7 @@ class SetupScreen extends StatelessWidget {
           Tab(text: 'Organisations'),
           Tab(text: 'Access'),
           Tab(text: 'Settings'),
+          Tab(text: 'Demo'),
         ]),
         Expanded(
           child: TabBarView(children: [
@@ -36,6 +38,7 @@ class SetupScreen extends StatelessWidget {
             _OrganisationsTab(dir: dir),
             _AccessTab(dir: dir),
             _SettingsTab(dir: dir),
+            DemoTab(session: session),
           ]),
         ),
       ]),

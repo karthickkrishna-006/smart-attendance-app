@@ -12,6 +12,7 @@ import '../../domain/attendance.dart';
 import '../../domain/attendance_summary.dart';
 import '../attendance/officer_attendance_screen.dart';
 import '../audit/audit_log_screen.dart';
+import '../work/officer_work_screens.dart';
 import '../profile/profile_screen.dart';
 import '../setup/people_screen.dart';
 import '../setup/setup_screen.dart';
@@ -71,6 +72,12 @@ class _OfficerShellState extends State<OfficerShell> {
         return NotYetBuilt(icon: Icons.groups_outlined, title: s.t('employees'), text: s.t('sectionNext'));
       case Section.attendance:
         return OfficerAttendanceScreen(key: ValueKey(role), session: session);
+      case Section.fieldActivities:
+        return OfficerActivitiesScreen(key: ValueKey(role), session: session);
+      case Section.tasks:
+        return OfficerTasksScreen(key: ValueKey(role), session: session);
+      case Section.alerts:
+        return AlertsScreen(key: ValueKey(role), session: session);
       case Section.setup:
         return SetupScreen(session: session);
       case Section.auditLog:

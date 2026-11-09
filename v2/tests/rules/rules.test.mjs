@@ -413,3 +413,104 @@ test('a role or pre-registration covers at most 10 areas', async () => {
   await assertFails(addPrereg(a, 'many@x.in', { role: 'supervisor', areaIds: eleven }));
   await assertSucceeds(addPrereg(a, 'ten@x.in', { role: 'supervisor', areaIds: ten }));
 });
+
+// =============================================================== Module 2: tasks, activities, demo data
+import { Bytes } from 'firebase/firestore';
+
+beforeEach(async () => {
+  const ra = (uid, role, extra = {}) => ({ uid, role, areaIds: [], active: true, source: 'admin', grantedBy: 'adm', ...extra });
+  await seed('areas/p1', { name: 'Street 1', level: 'panchayat', parentId: 'b1', path: ['d1', 'b1', 'p1'], provisional: true });
+  await seed('accounts/zs1', { email: 'zs1@x.in', status: 'active', displayName: 'Zonal One' });
+  await seed('roleAssignments/zs1__zonal_secretary', ra('zs1', 'zonal_secretary', { areaIds: ['b1'] }));
+});
+
+const task = (extra = {}) => ({
+  title: 'Clean Street 1', description: 'Remove waste', areaId: 'p1', areaPath: ['d1', 'b1', 'p1'], priority: 'normal',
+  dueDate: istToday(), status: 'assigned', createdBy: 'zs1', createdByName: 'Zonal One',
+  createdAt: serverTimestamp(), updatedAt: serverTimestamp(), synthetic: false, ...extra,
+});
+
+test('attendance: a worker may look up today\'s own record before it exists', async () => {
+  const w = as('w1', 'w1@x.in').db;
+  await assertSucceeds(getDoc(doc(w, `attendanceSessions/w1_${istToday()}`)));     // not created yet
+  await assertFails(getDoc(doc(w, `attendanceSessions/w2_${istToday()}`)));        // someone else's day
+  await assertFails(getDoc(doc(w, 'attendanceSessions/w1_anything')));              // not a day id
+});
+
+test('tasks: created by area officers inside their area; workers there see and work on them', async () => {
+  const zs = as('zs1', 'zs1@x.in').db;
+  await assertSucceeds(setDoc(doc(zs, 'tasks/t1'), task()));
+  await assertFails(setDoc(doc(zs, 'tasks/t2'), task({ areaId: 'b2', areaPath: ['d1', 'b2'] })));      // outside their zone
+  await assertFails(setDoc(doc(zs, 'tasks/t3'), task({ areaPath: ['d1', 'b1'] })));                      // wrong path
+  await assertFails(setDoc(doc(zs, 'tasks/t4'), task({ status: 'approved' })));
+  await assertFails(setDoc(doc(as('sup1', 'sup1@x.in').db, 'tasks/t5'), task({ createdBy: 'sup1' })));  // supervisors: off by default
+  await seed('config/app', { supervisorsMayCreateTasks: true });
+  await assertSucceeds(setDoc(doc(as('sup1', 'sup1@x.in').db, 'tasks/t6'), task({ createdBy: 'sup1' })));
+  await assertFails(setDoc(doc(as('w1', 'w1@x.in').db, 'tasks/t7'), task({ createdBy: 'w1' })));       // workers never create
+
+  const w1 = as('w1', 'w1@x.in').db;
+  await assertSucceeds(getDocs(query(collection(w1, 'tasks'), where('areaPath', 'array-contains', 'b1'))));
+  await assertFails(getDocs(query(collection(as('w2', 'w2@x.in').db, 'tasks'), where('areaPath', 'array-contains', 'b1'))));
+  await assertSucceeds(updateDoc(doc(w1, 'tasks/t1'), { status: 'in_progress', updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(w1, 'tasks/t1'), { status: 'approved', updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(w1, 'tasks/t1'), { title: 'Easier task', updatedAt: serverTimestamp() }));
+  await assertSucceeds(updateDoc(doc(as('sup1', 'sup1@x.in').db, 'tasks/t1'), { status: 'cancelled', updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(as('sup2', 'sup2@x.in').db, 'tasks/t6'), { status: 'cancelled', updatedAt: serverTimestamp() }));
+});
+
+const jpeg = (n = 2000) => Bytes.fromUint8Array(new Uint8Array(n).fill(7));
+const photo = (uid, activityId, index, extra = {}) => ({
+  uid, activityId, index, jpeg: jpeg(), sizeBytes: 2000, createdAt: serverTimestamp(), synthetic: false, ...extra,
+});
+const activity = (extra = {}) => ({
+  uid: 'w1', workerName: 'Worker One', date: istToday(), orgId: 'orgA', areaPath: ['d1', 'b1', 'p1'], taskId: 'tA',
+  geofenceId: null, title: 'Street swept', description: 'Done', lat: 12.69, lng: 79.97, accuracy: 9, mocked: false,
+  placement: 'inside', capturedAt: Timestamp.now(), photoCount: 1, status: 'submitted', evaluatedBy: 'device',
+  createdAt: serverTimestamp(), synthetic: false, ...extra,
+});
+async function submit(who, id, act, photos = 1) {
+  const b = writeBatch(who);
+  for (let i = 0; i < photos; i++) b.set(doc(who, `activityPhotos/${id}_${i}`), photo('w1', id, i));
+  b.set(doc(who, `activities/${id}`), act);
+  return b.commit();
+}
+
+test('activities: photo proof for own work in own area; reviewed by area officers only', async () => {
+  await seed('tasks/tA', { ...task(), createdAt: Timestamp.now(), updatedAt: Timestamp.now() });
+  const w1 = as('w1', 'w1@x.in').db;
+  await assertFails(submit(w1, 'a0', activity(), 0));                                   // no photo
+  await assertFails(submit(w1, 'a1', activity({ photoCount: 2 }), 1));                  // claims a photo it did not save
+  await assertFails(submit(w1, 'a2', activity({ workerName: 'Someone' })));             // fake name
+  await assertFails(submit(w1, 'a3', activity({ areaPath: ['d1', 'b2'] })));            // not the task's area
+  await assertFails(submit(w1, 'a4', activity({ status: 'approved' })));
+  await assertSucceeds(submit(w1, 'a5', activity()));
+  await assertFails(setDoc(doc(w1, 'activityPhotos/a5_1'), photo('w1', 'a5', 1)));     // no photos added later
+
+  await assertFails(updateDoc(doc(w1, 'activities/a5'), { status: 'approved', reviewNote: '', reviewedBy: 'w1', reviewedAt: serverTimestamp() }));
+  const sup1 = as('sup1', 'sup1@x.in').db;
+  await assertFails(updateDoc(doc(sup1, 'activities/a5'), { status: 'rejected', reviewNote: '', reviewedBy: 'sup1', reviewedAt: serverTimestamp() })); // reason required
+  await assertSucceeds(updateDoc(doc(sup1, 'activities/a5'), { status: 'approved', reviewNote: '', reviewedBy: 'sup1', reviewedByName: 'Sup', reviewedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(as('sup2', 'sup2@x.in').db, 'activities/a5'), { status: 'rework', reviewNote: 'x', reviewedBy: 'sup2', reviewedAt: serverTimestamp() }));
+
+  // Who can read the activity and its photo.
+  await assertSucceeds(getDocs(query(collection(sup1, 'activities'), where('areaPath', 'array-contains', 'b1'), where('date', '==', istToday()))));
+  await assertFails(getDoc(doc(as('sup2', 'sup2@x.in').db, 'activities/a5')));
+  await assertSucceeds(getDocs(query(collection(w1, 'activities'), where('uid', '==', 'w1'))));
+  await assertSucceeds(getDoc(doc(sup1, 'activityPhotos/a5_0')));
+  await assertSucceeds(getDoc(doc(w1, 'activityPhotos/a5_0')));
+  await assertFails(getDoc(doc(as('w2', 'w2@x.in').db, 'activityPhotos/a5_0')));
+  await assertFails(getDoc(doc(as('sup2', 'sup2@x.in').db, 'activityPhotos/a5_0')));
+});
+
+test('demo data: synthetic only, removable, never disguised as a real worker', async () => {
+  const a = admin().db;
+  const demo = { ...session('w1'), uid: 'demo-1', workerName: 'Demo Worker 1', synthetic: true };
+  await assertSucceeds(setDoc(doc(a, `attendanceSessions/demo-1_${istToday()}`), demo));
+  await assertFails(setDoc(doc(a, `attendanceSessions/w1_${istToday()}`), { ...demo, uid: 'w1' }));                 // real worker id
+  await assertFails(setDoc(doc(a, 'attendanceSessions/demo-2_x'), { ...demo, uid: 'demo-2', synthetic: false }));
+  await assertSucceeds(getDocs(query(collection(a, 'attendanceSessions'), where('synthetic', '==', true))));
+  await assertSucceeds(getDocs(query(collection(as('sup1', 'sup1@x.in').db, 'attendanceSessions'), where('areaPath', 'array-contains', 'b1'))));
+  await assertSucceeds(deleteDoc(doc(a, `attendanceSessions/demo-1_${istToday()}`)));
+  await assertSucceeds(setDoc(doc(a, 'tasks/demoT'), { ...task(), synthetic: true }));
+  await assertFails(setDoc(doc(as('zs1', 'zs1@x.in').db, 'tasks/fakeDemo'), task({ synthetic: true })));
+});
