@@ -179,6 +179,28 @@ jobs:
           echo "CI_DEBUG_CERT_SHA1=$SHA1" >> "$GITHUB_ENV"
           echo "CI debug key OK. SHA-1 $SHA1 is registered in Firebase."
 
+      # Gradle is downloaded once and reused; the download is retried, because
+      # services.gradle.org occasionally times out on the build servers.
+      - name: Cache Gradle download
+        uses: actions/cache@v4
+        with:
+          path: ~/.gradle/wrapper/dists
+          key: gradle-wrapper-${{ hashFiles('v2/android/gradle/wrapper/gradle-wrapper.properties') }}
+
+      - name: Download Gradle (up to 3 attempts)
+        working-directory: v2/android
+        run: |
+          for attempt in 1 2 3; do
+            if sh ./gradlew --version --no-daemon > /dev/null; then
+              echo "Gradle is ready (attempt $attempt)."
+              exit 0
+            fi
+            echo "Gradle download failed (attempt $attempt). Retrying in 20 seconds..."
+            sleep 20
+          done
+          echo "::error::Gradle could not be downloaded after 3 attempts. This is a network problem on the build server: re-run the job."
+          exit 1
+
       - name: Build debug APK (64-bit phones, for testing)
         env:
           CI_DEBUG_KEYSTORE_PATH: ${{ runner.temp }}/smart-attendance-ci-debug.jks
