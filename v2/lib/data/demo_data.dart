@@ -18,17 +18,28 @@ class DemoData {
 
   Future<String> generate({double lat = 12.6919, double lng = 79.9762}) async {
     // 1. Demo areas under the first district (or a demo district).
+    // Saved ONE LEVEL PER BATCH: the security rules check each area against
+    // its parent with get(), which sees the database as it was before the
+    // batch, so a parent must already be saved before its children.
+    Future<void> save(void Function(AuditedBatch b) fill) async {
+      final b = AuditedBatch(db, user);
+      fill(b);
+      await b.commit();
+    }
+
+    void area(AuditedBatch b, String id, String name, String level, String? parent, List<String> path) =>
+        b.batch.set(db.doc('areas/$id'), {
+          'name': name, 'level': level, 'parentId': parent, 'path': path, 'provisional': true,
+          ...b.stamp('demo_area', 'areas/$id'),
+        });
+
     final districts = await db.collection('areas').where('level', isEqualTo: 'district').limit(1).get();
-    final b = AuditedBatch(db, user);
     final String districtId;
     final List<String> districtPath;
     if (districts.docs.isEmpty) {
       districtId = 'demo-district';
       districtPath = [districtId];
-      b.batch.set(db.doc('areas/$districtId'), {
-        'name': 'Demo District', 'level': 'district', 'parentId': null, 'path': districtPath, 'provisional': true,
-        ...b.stamp('demo_area', 'areas/$districtId'),
-      });
+      await save((b) => area(b, districtId, 'Demo District', 'district', null, districtPath));
     } else {
       districtId = districts.docs.first.id;
       districtPath = ((districts.docs.first.data()['path'] as List?) ?? [districtId]).whereType<String>().toList();
@@ -39,23 +50,23 @@ class DemoData {
       [...panchayat, 'demo-street-1'],
       [...panchayat, 'demo-street-2'],
     ];
-    void area(String id, String name, String level, String parent, List<String> path) => b.batch.set(db.doc('areas/$id'), {
-          'name': name, 'level': level, 'parentId': parent, 'path': path, 'provisional': true,
-          ...b.stamp('demo_area', 'areas/$id'),
+    await save((b) => area(b, 'demo-block', 'Demo Block (synthetic)', 'block', districtId, block));
+    await save((b) => area(b, 'demo-panchayat', 'Demo Panchayat', 'panchayat', 'demo-block', panchayat));
+    await save((b) {
+      area(b, 'demo-street-1', 'Demo Street 1', 'location', 'demo-panchayat', streets.first);
+      area(b, 'demo-street-2', 'Demo Street 2', 'location', 'demo-panchayat', streets.last);
+    });
+    // Boundaries are checked against their (now saved) street areas.
+    await save((b) {
+      for (var i = 0; i < 2; i++) {
+        final id = 'demo-fence-${i + 1}';
+        b.batch.set(db.doc('geofences/$id'), {
+          'name': 'Demo Street ${i + 1} boundary', 'areaId': 'demo-street-${i + 1}', 'areaPath': streets.elementAt(i),
+          'kind': 'circle', 'center': GeoPoint(lat + i * 0.004, lng + i * 0.004), 'radiusM': 150.0, 'provisional': true,
+          ...b.stamp('demo_geofence', 'geofences/$id'),
         });
-    area('demo-block', 'Demo Block (synthetic)', 'block', districtId, block);
-    area('demo-panchayat', 'Demo Panchayat', 'panchayat', 'demo-block', panchayat);
-    area('demo-street-1', 'Demo Street 1', 'location', 'demo-panchayat', streets.first);
-    area('demo-street-2', 'Demo Street 2', 'location', 'demo-panchayat', streets.last);
-    for (var i = 0; i < 2; i++) {
-      final id = 'demo-fence-${i + 1}';
-      b.batch.set(db.doc('geofences/$id'), {
-        'name': 'Demo Street ${i + 1} boundary', 'areaId': 'demo-street-${i + 1}', 'areaPath': streets.elementAt(i),
-        'kind': 'circle', 'center': GeoPoint(lat + i * 0.004, lng + i * 0.004), 'radiusM': 150.0, 'provisional': true,
-        ...b.stamp('demo_geofence', 'geofences/$id'),
-      });
-    }
-    await b.commit();
+      }
+    });
 
     // 2. Today's attendance, tasks and field reports (synthetic).
     final now = DateTime.now();
