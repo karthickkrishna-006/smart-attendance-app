@@ -123,6 +123,22 @@ class _WorkerHomeState extends State<_WorkerHome> {
                 Text(duty.onDuty && since != null
                     ? s.t('dutyOn', {'time': '${since.hour.toString().padLeft(2, '0')}:${since.minute.toString().padLeft(2, '0')}'})
                     : s.t('dutyOff')),
+                if (duty.onDuty && duty.currentStreet != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Row(children: [
+                      const Icon(Icons.place, color: AppColors.green, size: 20),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          duty.zonesTotal > 0
+                              ? s.t('inStreetZones', {'street': duty.currentStreet!, 'n': '${duty.zonesDone}', 'm': '${duty.zonesTotal}'})
+                              : s.t('inStreet', {'street': duty.currentStreet!}),
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ]),
+                  ),
                 if (duty.lastError != null) Padding(padding: const EdgeInsets.only(top: 6), child: Text(duty.lastError!, style: const TextStyle(color: AppColors.danger, fontSize: 13))),
                 Align(
                   alignment: Alignment.centerLeft,

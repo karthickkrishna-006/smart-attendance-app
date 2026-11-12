@@ -679,7 +679,10 @@ service cloud.firestore {
         || (isSysAdmin() && resource.data.get('synthetic', false) == true);
       allow create: if (isSysAdmin() && demoRecord())
         || (incoming().keys().hasOnly(['uid', 'workerName', 'date', 'orgId', 'areaPath', 'geofenceId', 'geofenceName',
-                                       'enteredAt', 'exitedAt', 'durationMin', 'createdAt', 'closedAt', 'synthetic'])
+                                       'enteredAt', 'exitedAt', 'durationMin', 'createdAt', 'closedAt', 'synthetic',
+                                       'zonesTotal', 'zonesDone', 'updatedAt'])
+          && (incoming().get('zonesTotal', 0) is int && incoming().get('zonesTotal', 0) >= 0 && incoming().get('zonesTotal', 0) <= 50)
+          && incoming().get('zonesDone', []) == []
           && ownWorkerRecord(incoming())
           && incoming().date is string && isRecentIstDate(incoming().date)
           && incoming().geofenceId is string
@@ -688,13 +691,19 @@ service cloud.firestore {
           && incoming().enteredAt is timestamp
           && incoming().exitedAt == null && incoming().durationMin == null && incoming().closedAt == null
           && incoming().createdAt == request.time);
-      // The exit is added once; nothing else ever changes.
+      // While inside: cleaning zones reached are added (never removed).
+      // The exit (check-out) is added once. The entry never changes.
       allow update: if signedIn() && resource.data.uid == uid()
         && resource.data.exitedAt == null
-        && changed().hasOnly(['exitedAt', 'durationMin', 'closedAt'])
-        && incoming().exitedAt is timestamp && incoming().exitedAt >= resource.data.enteredAt
-        && incoming().durationMin is number && incoming().durationMin >= 0
-        && incoming().closedAt == request.time;
+        && incoming().get('zonesDone', []) is list
+        && incoming().get('zonesDone', []).size() <= 50
+        && incoming().get('zonesDone', []).hasAll(resource.data.get('zonesDone', []))
+        && ((changed().hasOnly(['zonesDone', 'updatedAt'])
+              && incoming().updatedAt == request.time)
+            || (changed().hasOnly(['exitedAt', 'durationMin', 'closedAt', 'zonesDone'])
+              && incoming().exitedAt is timestamp && incoming().exitedAt >= resource.data.enteredAt
+              && incoming().durationMin is number && incoming().durationMin >= 0
+              && incoming().closedAt == request.time));
       allow delete: if isSysAdmin() && resource.data.get('synthetic', false) == true;
     }
 
@@ -770,6 +779,22 @@ service cloud.firestore {
         && incoming().createdBy == uid()
         && incoming().createdAt == request.time;
       allow update: if false;
+      allow delete: if isSysAdmin();
+    }
+
+    // ---------------------------------------------------------- cleaning zones
+    // Points inside a street the worker must reach (e.g. Sri Ram Nagar Zone 1-8).
+    match /cleaningZones/{zoneId} {
+      allow read: if accountActive();
+      allow create, update: if isSysAdmin()
+        && incoming().keys().hasOnly(['name', 'streetFenceId', 'areaPath', 'center', 'radiusM', 'order', 'auditId'])
+        && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 80
+        && incoming().streetFenceId is string
+        && incoming().areaPath == get(/databases/$(database)/documents/geofences/$(incoming().streetFenceId)).data.areaPath
+        && incoming().center is latlng
+        && incoming().radiusM is number && incoming().radiusM >= 10 && incoming().radiusM <= 100
+        && incoming().order is int
+        && audited('cleaningZones/' + zoneId);
       allow delete: if isSysAdmin();
     }
 

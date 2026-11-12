@@ -13,7 +13,9 @@ import '../../domain/attendance_summary.dart';
 import '../attendance/officer_attendance_screen.dart';
 import '../../data/scoped.dart';
 import '../audit/audit_log_screen.dart';
+import '../../domain/street_zones.dart';
 import '../monitor/monitor_screens.dart';
+import '../monitor/street_screens.dart';
 import '../staff/staff_screens.dart';
 import '../work/officer_work_screens.dart';
 import '../profile/profile_screen.dart';
@@ -47,6 +49,7 @@ class _OfficerShellState extends State<OfficerShell> {
     Section.auditLog: Icons.policy_outlined,
     Section.myAttendance: Icons.add_a_photo_outlined,
     Section.messages: Icons.mail_outline,
+    Section.streetVisits: Icons.alt_route,
     Section.profile: Icons.person_outline,
   };
 
@@ -64,6 +67,7 @@ class _OfficerShellState extends State<OfficerShell> {
         Section.auditLog => 'auditLog',
         Section.myAttendance => 'myAttendance',
         Section.messages => 'messages',
+        Section.streetVisits => 'streetVisits',
         Section.profile => 'profile',
         _ => 'home',
       };
@@ -94,6 +98,8 @@ class _OfficerShellState extends State<OfficerShell> {
         return PhotoAttendanceScreen(key: ValueKey(role), session: session);
       case Section.messages:
         return MessagesScreen(key: ValueKey(role), session: session);
+      case Section.streetVisits:
+        return StreetVisitsScreen(key: ValueKey(role), session: session);
       case Section.liveMonitoring:
         return LiveMonitoringScreen(key: ValueKey(role), session: session);
       case Section.coverage:
@@ -123,6 +129,7 @@ class _OfficerShellState extends State<OfficerShell> {
         if (sec == Section.profile) Section.messages,
         sec,
         if (sec == base.first && takesPhotos) Section.myAttendance,
+        if (sec == Section.attendance) Section.streetVisits,
       ],
     ];
     final section = sections.contains(_section) ? _section! : sections.first;
@@ -227,6 +234,7 @@ class _Overview extends StatefulWidget {
 class _OverviewState extends State<_Overview> {
   SessionController get session => widget.session;
   late final Stream<List<Map<String, dynamic>>> _today = OfficerAttendance(widget.session).watch(dayKey(DateTime.now()));
+  late final Stream<List<Map<String, dynamic>>> _streets = watchScoped(widget.session, 'visits', day: dayKey(DateTime.now()));
 
   static const _capabilityText = <Capability, String>{
     Capability.dashboard: 'See summary figures',
@@ -280,6 +288,27 @@ class _OverviewState extends State<_Overview> {
             if (snap.hasError) return Text('${snap.error}', style: const TextStyle(color: AppColors.danger));
             if (!snap.hasData) return const LinearProgressIndicator();
             return AttendanceSummaryTiles(summary: AttendanceSummary.of(snap.data!));
+          },
+        ),
+        const SizedBox(height: 18),
+        const Text('Streets today (automatic check-in / check-out)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.ink)),
+        const SizedBox(height: 10),
+        StreamBuilder<List<Map<String, dynamic>>>(
+          stream: _streets,
+          builder: (context, snap) {
+            if (snap.hasError) return Text('${snap.error}', style: const TextStyle(color: AppColors.danger));
+            if (!snap.hasData) return const LinearProgressIndicator();
+            final st = snap.data!.map(visitStatusOf).toList();
+            Widget tile(StreetVisitStatus s) => Container(
+                  constraints: const BoxConstraints(minWidth: 100),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: AppColors.line)),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                    Text('${st.where((x) => x == s).length}', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: streetStatusColor(s))),
+                    Text(streetStatusLabel(s), style: const TextStyle(color: AppColors.muted, fontSize: 13)),
+                  ]),
+                );
+            return Wrap(spacing: 10, runSpacing: 10, children: [for (final s in StreetVisitStatus.values) tile(s)]);
           },
         ),
       ],

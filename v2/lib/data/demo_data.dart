@@ -80,6 +80,21 @@ class DemoData {
       }
     });
 
+    // Cleaning zones: 8 per demo street, along the street (inside its boundary).
+    await save((b) {
+      for (var i = 0; i < 2; i++) {
+        for (var k = 0; k < 8; k++) {
+          final id = 'demo-zone-${i + 1}-${k + 1}';
+          b.batch.set(db.doc('cleaningZones/$id'), {
+            'name': 'Demo Street ${i + 1} Zone ${k + 1}', 'streetFenceId': 'demo-fence-${i + 1}', 'areaPath': streets.elementAt(i),
+            'center': GeoPoint(lat + i * 0.004 + (k - 3.5) * 0.00025, lng + i * 0.004 + (k - 3.5) * 0.00012),
+            'radiusM': 25.0, 'order': k,
+            ...b.stamp('demo_cleaning_zone', 'cleaningZones/$id'),
+          });
+        }
+      }
+    });
+
     // 2. Remove earlier demo records first. The security rules never allow a
     //    created record (attendance, task, report, visit) to be overwritten, so
     //    pressing "Create" again must replace them, not update them.
@@ -186,8 +201,11 @@ class DemoData {
       live.set(db.doc('visits/demo-visit-${i + 1}'), {
         'uid': uid, 'workerName': p.$1, 'date': day, 'orgId': null, 'areaPath': path,
         'geofenceId': 'demo-fence-${p.$2 + 1}', 'geofenceName': 'Demo Street ${p.$2 + 1} boundary',
-        'enteredAt': at(9, 5 + i), 'exitedAt': p.$6 ? at(12, 40 + i) : null, 'durationMin': p.$6 ? 215 : null,
-        'createdAt': at(9, 6 + i), 'closedAt': p.$6 ? at(12, 41 + i) : null, 'synthetic': true,
+        'enteredAt': at(9, 30 + i), 'exitedAt': p.$6 ? at(10, 3 + i) : null, 'durationMin': p.$6 ? 33 : null,
+        'createdAt': at(9, 31 + i), 'closedAt': p.$6 ? at(10, 4 + i) : null, 'synthetic': true,
+        // Completed 8/8, left incomplete 6/8, or in progress 3/8.
+        'zonesTotal': 8,
+        'zonesDone': [for (var k = 1; k <= (p.$6 ? (i == 3 ? 6 : 8) : 3); k++) 'demo-zone-${p.$2 + 1}-$k'],
       });
     }
     await _step('Saving demo live positions, routes and street visits', live.commit);

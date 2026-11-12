@@ -6,6 +6,7 @@ Android app (Flutter) with a Firebase backend for field workers and the officers
 - **Role-by-role test checklist:** see [docs/TESTING.md](docs/TESTING.md)
 - **What is not done or not verified:** see [docs/KNOWN-LIMITATIONS.md](docs/KNOWN-LIMITATIONS.md)
 - **Village panchayat and block staff, GPS photo attendance:** see [docs/STAFF-AND-ROLES.md](docs/STAFF-AND-ROLES.md)
+- **Real streets, cleaning zones, automatic check-in/check-out:** see [docs/STREET-SETUP.md](docs/STREET-SETUP.md)
 
 The old app in the repository root is separate and unchanged. v2 has its own Android package `in.cit.smartattendance.v2` and its own Firebase project.
 

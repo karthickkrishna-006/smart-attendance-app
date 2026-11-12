@@ -25,6 +25,7 @@ enum Section {
   // designation) and messages from the district administration.
   myAttendance,
   messages,
+  streetVisits,
   // Everyone
   profile,
 }

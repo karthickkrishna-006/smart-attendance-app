@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../app/theme.dart';
 import '../../app/ui.dart';
+import '../../data/attendance_repository.dart';
 import '../../data/directory.dart';
+import '../monitor/street_screens.dart';
 import '../../data/location.dart';
 import '../../domain/area.dart';
 import '../../domain/geo.dart';
@@ -199,6 +201,12 @@ class GeofencesTab extends StatelessWidget {
                   : ListView(padding: const EdgeInsets.fromLTRB(12, 12, 12, 160), children: [
                       for (final f in fences)
                         ListTile(
+                          onTap: () {
+                            final fence = AttendanceRepository.geofenceFromMap(f['id'] as String, f);
+                            if (fence == null) return;
+                            Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => CleaningZonesPage(admin: dir.user, street: fence)));
+                          },
+                          trailing: const Icon(Icons.edit_location_alt_outlined),
                           leading: Icon(f['kind'] == 'circle' ? Icons.radio_button_unchecked : Icons.pentagon_outlined, color: AppColors.green),
                           title: Text('${f['name']}'),
                           subtitle: Text(

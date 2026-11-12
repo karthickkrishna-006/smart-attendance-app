@@ -696,3 +696,29 @@ test('removing a signed-in person: administrator only', async () => {
   await assertFails(deleteDoc(doc(as('w1', 'w1@x.in').db, 'preregistrations/gone@x.in')));
   await assertSucceeds(deleteDoc(doc(admin().db, 'preregistrations/gone@x.in')));
 });
+
+test('cleaning zones: set by the administrator inside a real street boundary, audited', async () => {
+  const a = admin();
+  const zone = (who, id, data) => { const b = writeBatch(who.db); b.set(doc(who.db, `cleaningZones/${id}`), { ...data, auditId: audit(b, who, `cleaningZones/${id}`) }); return b.commit(); };
+  const ok = { name: 'Sri Ram Nagar Zone 1', streetFenceId: 'g1', areaPath: ['d1', 'b1'], center: new GeoPoint(12.69, 79.97), radiusM: 25, order: 0 };
+  await assertSucceeds(zone(a, 'z1', ok));
+  await assertFails(zone(a, 'z2', { ...ok, areaPath: ['d1', 'b2'] }));          // not the street's area
+  await assertFails(zone(a, 'z3', { ...ok, radiusM: 500 }));
+  await assertFails(zone(as('zs1', 'zs1@x.in'), 'z4', ok));                       // only the administrator
+  await assertSucceeds(getDoc(doc(as('w1', 'w1@x.in').db, 'cleaningZones/z1')));
+});
+
+test('street visits: zones reached are added during the visit, never removed; check-out once', async () => {
+  const w1 = as('w1', 'w1@x.in').db;
+  const visit = { uid: 'w1', workerName: 'Worker One', date: istToday(), orgId: 'orgA', areaPath: ['d1', 'b1'], geofenceId: 'g1',
+    geofenceName: 'Sri Ram Nagar', enteredAt: Timestamp.fromMillis(Date.now() - 1980000), exitedAt: null, durationMin: null,
+    createdAt: serverTimestamp(), closedAt: null, synthetic: false, zonesTotal: 8, zonesDone: [] };
+  await assertFails(setDoc(doc(w1, 'visits/s0'), { ...visit, zonesDone: ['z1'] }));                      // zones start empty
+  await assertSucceeds(setDoc(doc(w1, 'visits/s1'), visit));
+  await assertSucceeds(updateDoc(doc(w1, 'visits/s1'), { zonesDone: ['z1', 'z2'], updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(w1, 'visits/s1'), { zonesDone: ['z1'], updatedAt: serverTimestamp() }));        // never removed
+  await assertFails(updateDoc(doc(w1, 'visits/s1'), { zonesDone: ['z1', 'z2', 'z3'], enteredAt: Timestamp.now(), updatedAt: serverTimestamp() }));
+  await assertSucceeds(updateDoc(doc(w1, 'visits/s1'), { zonesDone: ['z1', 'z2', 'z3'], exitedAt: Timestamp.now(), durationMin: 33, closedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(w1, 'visits/s1'), { zonesDone: ['z1', 'z2', 'z3', 'z4'], updatedAt: serverTimestamp() }));  // after check-out: nothing
+  await assertSucceeds(getDoc(doc(as('sup1', 'sup1@x.in').db, 'visits/s1')));
+});

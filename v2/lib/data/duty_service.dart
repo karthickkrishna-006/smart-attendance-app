@@ -7,10 +7,12 @@ import 'package:geolocator/geolocator.dart';
 import '../domain/attendance.dart';
 import '../domain/geo.dart';
 import '../domain/live_update.dart';
+import '../domain/street_zones.dart';
 import '../domain/visits.dart';
 import 'attendance_repository.dart';
 import 'location.dart';
 import 'session_controller.dart';
+import 'street_zones_repo.dart';
 
 /// Field duty: while on, the phone shows a permanent notification and
 ///  * updates the worker's live position (presence) about once a minute,
@@ -30,6 +32,13 @@ class DutyService extends ChangeNotifier {
   SessionController? _session;
   StreamSubscription<Position>? _sub;
   List<Geofence> _fences = const [];
+  Map<String, List<CleaningZone>> _zones = const {};
+  final ZoneTracker _zoneTracker = ZoneTracker();
+
+  /// Worker view: the street they are in and its zone progress (no times).
+  String? get currentStreet => _tracker.current?.name;
+  int get zonesDone => _zoneTracker.done.length;
+  int get zonesTotal => _zones[_tracker.current?.id]?.length ?? 0;
   VisitTracker _tracker = VisitTracker();
   String? _openVisitId;
   Position? _last;
@@ -58,6 +67,11 @@ class DutyService extends ChangeNotifier {
     lastError = null;
     await Location.current(); // permission and location-service checks, with plain messages
     _fences = await AttendanceRepository(_uid).geofencesFor(session.current?.areaIds ?? const []);
+    try {
+      _zones = await StreetZonesRepo().forStreets(_fences.map((f) => f.id));
+    } catch (_) {
+      _zones = const {}; // streets without zones still get check-in/check-out
+    }
     _tracker = VisitTracker();
     _openVisitId = null;
     _sentPoint = null;
@@ -148,6 +162,19 @@ class DutyService extends ChangeNotifier {
         }
       }
       final here = GeoPoint2(p.latitude, p.longitude);
+      // Cleaning zones inside the current street are ticked automatically.
+      final street = _tracker.current;
+      final id = _openVisitId;
+      if (street != null && id != null) {
+        final reached = _zoneTracker.update(here, p.accuracy, _zones[street.id] ?? const []);
+        if (reached.isNotEmpty) {
+          notifyListeners();
+          await _guard(() => _db.doc('visits/$id').update({
+                'zonesDone': FieldValue.arrayUnion([for (final z in reached) z.id]),
+                'updatedAt': FieldValue.serverTimestamp(),
+              }));
+        }
+      }
       // Smart updates: only after moving, every 5 minutes when still, or at
       // once on a street entry/exit.
       if (_policy.shouldSend(lastSent: _sentPoint, lastSentAt: _sentAt, now: here, accuracyM: p.accuracy, at: now, force: events.isNotEmpty)) {
@@ -181,6 +208,8 @@ class DutyService extends ChangeNotifier {
   Future<void> _openVisit(VisitEvent e) async {
     final ref = _db.collection('visits').doc();
     _openVisitId = ref.id;
+    _zoneTracker.reset();
+    notifyListeners();
     await _guard(() => ref.set({
           'uid': _uid,
           'workerName': _name,
@@ -195,6 +224,8 @@ class DutyService extends ChangeNotifier {
           'createdAt': FieldValue.serverTimestamp(),
           'closedAt': null,
           'synthetic': false,
+          'zonesTotal': (_zones[e.fence.id] ?? const []).length,
+          'zonesDone': const <String>[],
         }));
   }
 
@@ -206,7 +237,10 @@ class DutyService extends ChangeNotifier {
           'exitedAt': Timestamp.fromDate(e.exitedAt!),
           'durationMin': e.duration!.inMinutes,
           'closedAt': FieldValue.serverTimestamp(),
+          'zonesDone': _zoneTracker.done.toList(),
         }));
+    _zoneTracker.reset();
+    notifyListeners();
   }
 
   /// First street entry of the day marks attendance (same checks as the button).

@@ -10,6 +10,7 @@ import '../../data/attendance_repository.dart';
 import '../../data/officer_attendance.dart';
 import '../../data/scoped.dart';
 import '../../data/session_controller.dart';
+import '../../data/street_zones_repo.dart';
 import '../../data/work_repository.dart';
 import '../../domain/attendance.dart';
 import '../../domain/attendance_summary.dart';
@@ -17,7 +18,9 @@ import '../../domain/designations.dart';
 import '../../domain/geo.dart';
 import '../../domain/live_update.dart';
 import '../../domain/roles.dart';
+import '../../domain/street_zones.dart';
 import '../work/worker_work_screens.dart' show shortDateTime;
+import 'street_screens.dart' show streetStatusColor, streetStatusLabel, visitStatusOf;
 
 /// Boundaries inside the officer's scope.
 Future<List<Geofence>> geofencesInScope(SessionController session) async {
@@ -80,6 +83,8 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
   late final _visits = watchScoped(widget.session, 'visits', day: dayKey(DateTime.now()), sort: newestFirst('enteredAt'));
   late final Future<List<Geofence>> _fences = geofencesInScope(widget.session);
   late final Future<List<Map<String, dynamic>>> _areas = WorkRepository(widget.session).areasInScope();
+  late final Future<Map<String, List<CleaningZone>>> _zones =
+      _fences.then((f) => StreetZonesRepo().forStreets(f.map((x) => x.id))).catchError((Object _) => <String, List<CleaningZone>>{});
   final _map = MapController();
   List<LatLng> _route = const [];
   String? _selected;
@@ -148,7 +153,9 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
   @override
   Widget build(BuildContext context) {
     final problem = scopeProblem(widget.session);
-    return FutureBuilder<List<Map<String, dynamic>>>(
+    return FutureBuilder<Map<String, List<CleaningZone>>>(
+      future: _zones,
+      builder: (context, zoneSnap) => FutureBuilder<List<Map<String, dynamic>>>(
       future: _areas,
       builder: (context, areaSnap) => FutureBuilder<List<Geofence>>(
         future: _fences,
@@ -163,6 +170,14 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
               final visits = visitSnap.data ?? const <Map<String, dynamic>>[];
               final names = {for (final f in fences) f.id: f.name};
               final counts = {for (final st in LiveState.values) st: all.where((p) => _stateOf(p) == st).length};
+              // Street colours from today's automatic check-ins/check-outs.
+              final streetStatus = <String, StreetVisitStatus?>{
+                for (final f in fences) f.id: streetStatusToday([for (final v in visits) if (v['geofenceId'] == f.id) visitStatusOf(v)]),
+              };
+              final zonesDoneToday = <String>{for (final v in visits) ...((v['zonesDone'] as List?) ?? const []).whereType<String>()};
+              final zones = [for (final f in fences) ...?zoneSnap.data?[f.id]];
+              Color fill(Geofence f) => streetStatusColor(streetStatus[f.id]).withValues(alpha: streetStatus[f.id] == null ? 0.05 : 0.22);
+              Color edge(Geofence f) => streetStatusColor(streetStatus[f.id]);
               final people = all.where((p) {
                 if (_areaFilter != null && !(((p['areaPath'] as List?) ?? const []).contains(_areaFilter))) return false;
                 if (_typeFilter != null && p['designation'] != _typeFilter) return false;
@@ -228,6 +243,18 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                     for (final st in LiveState.values) Padding(padding: const EdgeInsets.only(right: 6), child: _legendChip(st, counts[st] ?? 0)),
                   ]),
                 ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 0, 14, 4),
+                  child: Wrap(spacing: 12, runSpacing: 2, children: [
+                    const Text('Streets:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                    for (final s in [StreetVisitStatus.completed, StreetVisitStatus.inProgress, StreetVisitStatus.incomplete, null])
+                      Row(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(Icons.square_rounded, size: 12, color: streetStatusColor(s)),
+                        Text(' ${streetStatusLabel(s)}', style: const TextStyle(fontSize: 12)),
+                      ]),
+                    const Text('· zone circles turn green when cleaned', style: TextStyle(fontSize: 12, color: AppColors.muted)),
+                  ]),
+                ),
                 SizedBox(
                   height: 320,
                   child: FlutterMap(
@@ -241,18 +268,29 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                             point: LatLng(f.center!.lat, f.center!.lng),
                             radius: f.radiusM!,
                             useRadiusInMeter: true,
-                            color: AppColors.green.withValues(alpha: 0.10),
-                            borderColor: AppColors.green,
-                            borderStrokeWidth: 2,
+                            color: fill(f),
+                            borderColor: edge(f),
+                            borderStrokeWidth: 2.5,
                           ),
                       ]),
                       PolygonLayer(polygons: [
                         for (final f in shownFences.where((f) => f.kind == GeofenceKind.polygon))
                           Polygon(
                             points: [for (final p in f.ring) LatLng(p.lat, p.lng)],
-                            color: AppColors.green.withValues(alpha: 0.10),
-                            borderColor: AppColors.green,
-                            borderStrokeWidth: 2,
+                            color: fill(f),
+                            borderColor: edge(f),
+                            borderStrokeWidth: 2.5,
+                          ),
+                      ]),
+                      CircleLayer(circles: [
+                        for (final z in zones.where((z) => shownFences.any((f) => f.id == z.streetFenceId)))
+                          CircleMarker(
+                            point: LatLng(z.center.lat, z.center.lng),
+                            radius: z.radiusM,
+                            useRadiusInMeter: true,
+                            color: zonesDoneToday.contains(z.id) ? AppColors.success.withValues(alpha: 0.55) : Colors.white.withValues(alpha: 0.6),
+                            borderColor: zonesDoneToday.contains(z.id) ? AppColors.success : AppColors.indigo,
+                            borderStrokeWidth: 1.5,
                           ),
                       ]),
                       if (_route.length > 1) PolylineLayer(polylines: [Polyline(points: _route, strokeWidth: 4, color: AppColors.indigo)]),
@@ -325,6 +363,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
           ),
         ),
       ),
+    ),
     );
   }
 }
