@@ -201,23 +201,39 @@ jobs:
           echo "::error::Gradle could not be downloaded after 3 attempts. This is a network problem on the build server: re-run the job."
           exit 1
 
+      # Google Maps is switched on only when the MAPS_API_KEY secret exists;
+      # otherwise the app uses OpenStreetMap. The key is never printed.
+      - name: Map configuration
+        env:
+          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+        run: |
+          if [ -n "$MAPS_API_KEY" ]; then
+            echo "MAPS_DEFINE=--dart-define=GOOGLE_MAPS=true" >> "$GITHUB_ENV"
+            echo "Google Maps: ON (MAPS_API_KEY secret found)."
+          else
+            echo "MAPS_DEFINE=" >> "$GITHUB_ENV"
+            echo "Google Maps: OFF (no MAPS_API_KEY secret) - the app uses OpenStreetMap."
+          fi
+
       - name: Build debug APK (64-bit phones, for testing)
         env:
+          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
           CI_DEBUG_KEYSTORE_PATH: ${{ runner.temp }}/smart-attendance-ci-debug.jks
           CI_DEBUG_KEYSTORE_PASSWORD: ${{ secrets.DEBUG_KEYSTORE_PASSWORD }}
           CI_DEBUG_KEY_ALIAS: ${{ secrets.DEBUG_KEY_ALIAS }}
           CI_DEBUG_KEY_PASSWORD: ${{ secrets.DEBUG_KEY_PASSWORD }}
           CI_REQUIRE_CI_DEBUG_SIGNING: 'true'
-        run: flutter build apk --debug --split-per-abi --target-platform android-arm64
+        run: flutter build apk --debug --split-per-abi --target-platform android-arm64 $MAPS_DEFINE
 
       - name: Build release APKs (one per phone CPU type, signed with the CI test key)
         env:
+          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
           CI_DEBUG_KEYSTORE_PATH: ${{ runner.temp }}/smart-attendance-ci-debug.jks
           CI_DEBUG_KEYSTORE_PASSWORD: ${{ secrets.DEBUG_KEYSTORE_PASSWORD }}
           CI_DEBUG_KEY_ALIAS: ${{ secrets.DEBUG_KEY_ALIAS }}
           CI_DEBUG_KEY_PASSWORD: ${{ secrets.DEBUG_KEY_PASSWORD }}
           CI_REQUIRE_CI_DEBUG_SIGNING: 'true'
-        run: flutter build apk --release --split-per-abi --target-platform android-arm,android-arm64
+        run: flutter build apk --release --split-per-abi --target-platform android-arm,android-arm64 $MAPS_DEFINE
 
       - name: Verify APKs (package, signature, Firebase key) and report sizes
         shell: bash
