@@ -25,7 +25,10 @@ class DutyService extends ChangeNotifier {
   DutyService._();
   static final instance = DutyService._();
 
-  static const _policy = LiveUpdatePolicy();
+  // Between streets: every 30 m or 3 min. Inside a street: every 15 m or
+  // 60 s, so officers see the worker move smoothly where the work happens.
+  static const _policy = LiveUpdatePolicy(minMoveM: 30, maxQuiet: Duration(minutes: 3));
+  static const _streetPolicy = LiveUpdatePolicy(minMoveM: 15, maxQuiet: Duration(seconds: 60), minGap: Duration(seconds: 15));
   static const _routePolicy = LiveUpdatePolicy(minMoveM: 25);
 
   final _db = FirebaseFirestore.instance;
@@ -177,7 +180,7 @@ class DutyService extends ChangeNotifier {
       }
       // Smart updates: only after moving, every 5 minutes when still, or at
       // once on a street entry/exit.
-      if (_policy.shouldSend(lastSent: _sentPoint, lastSentAt: _sentAt, now: here, accuracyM: p.accuracy, at: now, force: events.isNotEmpty)) {
+      if ((_tracker.current != null ? _streetPolicy : _policy).shouldSend(lastSent: _sentPoint, lastSentAt: _sentAt, now: here, accuracyM: p.accuracy, at: now, force: events.isNotEmpty)) {
         _sentPoint = here;
         _sentAt = now;
         await _guard(() => _writePresence(p, onDuty: true));

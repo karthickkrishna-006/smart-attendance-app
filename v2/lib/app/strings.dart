@@ -193,7 +193,7 @@ class Strings {
     'urgent': 'Urgent',
     'myAttendance': 'My attendance',
     'staffType': 'Staff type',
-    'd_thoomai_kavalar': 'Thoomai Kavalar',
+    'd_thoomai_kavalar': 'Thoomai Kavalar (Thooimai Paniyalar)',
     'd_oht_operator': 'OHT Operator',
     'd_mnp': 'Makkal Nala Paniyalar (MNP)',
     'd_vp_secretary': 'Village Panchayat Secretary',
@@ -209,6 +209,7 @@ class Strings {
     'streetVisits': 'Street check-in/out',
     'inStreet': 'You are in {street}.',
     'inStreetZones': '{street}: {n} of {m} zones cleaned',
+    'department': 'Rural Development & Panchayat Raj Department · Chengalpattu',
   };
 
   static const _ta = <String, String>{
@@ -384,7 +385,7 @@ class Strings {
     'urgent': 'அவசரம்',
     'myAttendance': 'எனது வருகை',
     'staffType': 'பணியாளர் வகை',
-    'd_thoomai_kavalar': 'தூய்மைக் காவலர்',
+    'd_thoomai_kavalar': 'தூய்மைக் காவலர் (தூய்மைப் பணியாளர்)',
     'd_oht_operator': 'மேல்நிலை நீர்த்தேக்கத் தொட்டி இயக்குநர்',
     'd_mnp': 'மக்கள் நலப் பணியாளர்',
     'd_vp_secretary': 'ஊராட்சி செயலர்',
@@ -400,6 +401,7 @@ class Strings {
     'streetVisits': 'தெரு வருகை/வெளியேற்றம்',
     'inStreet': 'நீங்கள் {street} இல் இருக்கிறீர்கள்.',
     'inStreetZones': '{street}: {m} இல் {n} மண்டலங்கள் சுத்தம் செய்யப்பட்டன',
+    'department': 'ஊரக வளர்ச்சி மற்றும் ஊராட்சித் துறை · செங்கல்பட்டு',
   };
 
   /// Keys present in English but missing in Tamil (checked by a unit test).

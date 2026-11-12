@@ -27,6 +27,8 @@ ThemeData buildTheme() {
   );
   return ThemeData(
     useMaterial3: true,
+    fontFamily: 'NotoSans',
+    fontFamilyFallback: const ['NotoSansTamil'],
     colorScheme: scheme,
     scaffoldBackgroundColor: AppColors.surface,
     appBarTheme: const AppBarTheme(

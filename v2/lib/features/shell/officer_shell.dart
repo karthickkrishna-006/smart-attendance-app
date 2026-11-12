@@ -168,7 +168,12 @@ class _OfficerShellState extends State<OfficerShell> {
           leading: wide
               ? null
               : IconButton(tooltip: 'Menu', icon: const Icon(Icons.menu), onPressed: () => _scaffold.currentState?.openDrawer()),
-          title: Text(s.t(_labelKey(section))),
+          backgroundColor: AppColors.green,
+          foregroundColor: Colors.white,
+          title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(s.t(_labelKey(section)), style: const TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.w700)),
+            Text(s.t('department'), style: const TextStyle(color: Colors.white70, fontSize: 11.5)),
+          ]),
         ),
         body: _page(section, s),
       );

@@ -84,7 +84,17 @@ class _WorkerHomeState extends State<_WorkerHome> {
     final s = Strings.of(context);
     final name = (session.account?['displayName'] as String?)?.trim();
     final first = (name == null || name.isEmpty) ? (session.user?.email ?? '') : name.split(RegExp(r'\s+')).first;
-    return ListView(padding: const EdgeInsets.fromLTRB(20, 24, 20, 32), children: [
+    return ListView(padding: const EdgeInsets.fromLTRB(20, 16, 20, 32), children: [
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(color: AppColors.green, borderRadius: BorderRadius.circular(10)),
+        child: Row(children: [
+          const Icon(Icons.account_balance, color: Colors.white, size: 18),
+          const SizedBox(width: 8),
+          Expanded(child: Text(s.t('department'), style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600))),
+        ]),
+      ),
+      const SizedBox(height: 14),
       Text(s.t('hello', {'name': first}), style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: AppColors.ink)),
       if (session.designation != null)
         Text(s.t('d_${session.designation!.key}'), style: const TextStyle(color: AppColors.muted, fontSize: 16)),

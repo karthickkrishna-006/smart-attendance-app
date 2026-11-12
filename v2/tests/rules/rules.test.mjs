@@ -722,3 +722,15 @@ test('street visits: zones reached are added during the visit, never removed; ch
   await assertFails(updateDoc(doc(w1, 'visits/s1'), { zonesDone: ['z1', 'z2', 'z3', 'z4'], updatedAt: serverTimestamp() }));  // after check-out: nothing
   await assertSucceeds(getDoc(doc(as('sup1', 'sup1@x.in').db, 'visits/s1')));
 });
+
+test('demonstration simulation: the administrator may update synthetic visits only', async () => {
+  await seed('visits/sim1', { uid: 'demo-s01', workerName: 'Sample', date: istToday(), areaPath: ['d1', 'b1'], geofenceId: 'g1',
+    enteredAt: Timestamp.now(), exitedAt: null, zonesDone: [], synthetic: true });
+  await seed('visits/real1', { uid: 'w1', workerName: 'Worker One', date: istToday(), areaPath: ['d1', 'b1'], geofenceId: 'g1',
+    enteredAt: Timestamp.now(), exitedAt: null, zonesDone: [], synthetic: false });
+  const a = admin().db;
+  await assertSucceeds(updateDoc(doc(a, 'visits/sim1'), { zonesDone: ['z1'], synthetic: true }));
+  await assertFails(updateDoc(doc(a, 'visits/real1'), { zonesDone: ['z1'] }));                 // never a real worker's visit
+  await assertFails(updateDoc(doc(a, 'visits/sim1'), { synthetic: false }));                   // cannot turn demo into "real"
+  await assertFails(updateDoc(doc(as('w1', 'w1@x.in').db, 'visits/sim1'), { zonesDone: ['z2'], synthetic: true }));
+});

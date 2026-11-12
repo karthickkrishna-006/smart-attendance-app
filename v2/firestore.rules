@@ -693,7 +693,9 @@ service cloud.firestore {
           && incoming().createdAt == request.time);
       // While inside: cleaning zones reached are added (never removed).
       // The exit (check-out) is added once. The entry never changes.
-      allow update: if signedIn() && resource.data.uid == uid()
+      // (The System administrator may update synthetic demonstration visits only.)
+      allow update: if (isSysAdmin() && resource.data.get('synthetic', false) == true && incoming().synthetic == true)
+        || signedIn() && resource.data.uid == uid()
         && resource.data.exitedAt == null
         && incoming().get('zonesDone', []) is list
         && incoming().get('zonesDone', []).size() <= 50

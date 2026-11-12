@@ -23,7 +23,7 @@ class PhotoSchedule {
 /// decides what they may see and do (permissions); the [schedule] decides
 /// their daily GPS photo attendance.
 enum Designation {
-  thoomaiKavalar('thoomai_kavalar', 'Thoomai Kavalar', StaffTier.village, Role.worker,
+  thoomaiKavalar('thoomai_kavalar', 'Thoomai Kavalar (Thooimai Paniyalar)', StaffTier.village, Role.worker,
       PhotoSchedule(minPhotos: 2, slotMinutes: [9 * 60, 13 * 60])),
   ohtOperator('oht_operator', 'OHT Operator', StaffTier.village, Role.worker,
       PhotoSchedule(minPhotos: 1, eventLabel: 'Water opened')),

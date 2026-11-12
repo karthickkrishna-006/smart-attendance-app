@@ -25,6 +25,8 @@ dependencies:
   # Live map (OpenStreetMap tiles) and routes.
   flutter_map: ^7.0.2
   latlong2: ^0.9.1
+  # Google Maps (used when the build has a Maps API key; otherwise OpenStreetMap).
+  google_maps_flutter: ^2.10.0
 
 dev_dependencies:
   flutter_test:
@@ -33,3 +35,17 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  # One typeface for English and Tamil (SIL Open Font License, assets/fonts/OFL.txt).
+  fonts:
+    - family: NotoSans
+      fonts:
+        - asset: assets/fonts/NotoSans-Regular.ttf
+        - asset: assets/fonts/NotoSans-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/NotoSans-Bold.ttf
+          weight: 700
+    - family: NotoSansTamil
+      fonts:
+        - asset: assets/fonts/NotoSansTamil-Regular.ttf
+        - asset: assets/fonts/NotoSansTamil-Bold.ttf
+          weight: 700
