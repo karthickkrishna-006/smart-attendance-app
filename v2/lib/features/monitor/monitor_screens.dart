@@ -13,7 +13,9 @@ import '../../data/session_controller.dart';
 import '../../data/work_repository.dart';
 import '../../domain/attendance.dart';
 import '../../domain/attendance_summary.dart';
+import '../../domain/designations.dart';
 import '../../domain/geo.dart';
+import '../../domain/live_update.dart';
 import '../../domain/roles.dart';
 import '../work/worker_work_screens.dart' show shortDateTime;
 
@@ -48,12 +50,24 @@ String _ago(Object? t) {
   return '${m ~/ 60} h ${m % 60} min ago';
 }
 
-bool _fresh(Map<String, dynamic> p) =>
-    p['onDuty'] == true && p['at'] is Timestamp && DateTime.now().difference((p['at'] as Timestamp).toDate()).inMinutes < 10;
-
 const _defaultCentre = LatLng(12.6919, 79.9762);
 
 // ------------------------------------------------------------ live monitoring
+Color _stateColor(LiveState st) => switch (st) {
+      LiveState.moving => AppColors.success,
+      LiveState.stale => AppColors.turmeric,
+      LiveState.offDuty => AppColors.muted,
+    };
+
+String _stateLabel(LiveState st) => switch (st) {
+      LiveState.moving => 'Moving now',
+      LiveState.stale => 'No update 10+ min',
+      LiveState.offDuty => 'Off duty',
+    };
+
+LiveState _stateOf(Map<String, dynamic> p) =>
+    liveStateOf(onDuty: p['onDuty'] == true, at: p['at'] is Timestamp ? (p['at'] as Timestamp).toDate() : null, now: DateTime.now());
+
 class LiveMonitoringScreen extends StatefulWidget {
   const LiveMonitoringScreen({super.key, required this.session});
   final SessionController session;
@@ -65,11 +79,15 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
   late final _presence = watchMerged(scopedQueries(widget.session, 'presence'), sort: newestFirst('at'));
   late final _visits = watchScoped(widget.session, 'visits', day: dayKey(DateTime.now()), sort: newestFirst('enteredAt'));
   late final Future<List<Geofence>> _fences = geofencesInScope(widget.session);
+  late final Future<List<Map<String, dynamic>>> _areas = WorkRepository(widget.session).areasInScope();
   final _map = MapController();
   List<LatLng> _route = const [];
   String? _selected;
+  String? _areaFilter;
+  String? _typeFilter;
+  LiveState? _stateFilter;
 
-  Future<void> _select(Map<String, dynamic> p, List<Map<String, dynamic>> visits, List<Geofence> fences) async {
+  Future<void> _select(Map<String, dynamic> p, List<Map<String, dynamic>> visits) async {
     final uid = p['uid'] as String;
     setState(() => _selected = uid);
     try {
@@ -85,15 +103,24 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
     }
     if (!mounted) return;
     final mine = visits.where((v) => v['uid'] == uid).toList();
+    final st = _stateOf(p);
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
       builder: (c) => SafeArea(
         child: ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(20, 0, 20, 20), children: [
           Text('${p['workerName'] ?? ''}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
-          Text('${p['onDuty'] == true ? 'On duty' : 'Off duty'} · last update ${_ago(p['at'])}'
-              '${p['accuracy'] is num ? ' · ±${(p['accuracy'] as num).round()} m' : ''}'
-              '${p['synthetic'] == true ? ' · demo' : ''}', style: const TextStyle(color: AppColors.muted)),
+          if (Designation.fromKey(p['designation'] as String?) case final Designation d) Text(d.title, style: const TextStyle(color: AppColors.muted)),
+          const SizedBox(height: 4),
+          Row(children: [
+            Icon(Icons.circle, size: 12, color: _stateColor(st)),
+            const SizedBox(width: 6),
+            Text('${_stateLabel(st)} · last update ${_ago(p['at'])}'
+                '${p['accuracy'] is num ? ' · ±${(p['accuracy'] as num).round()} m' : ''}${p['synthetic'] == true ? ' · demo' : ''}'),
+          ]),
+          const SizedBox(height: 4),
+          Text(_route.length > 1 ? 'Today\'s route is drawn on the map (${_route.length} points).' : 'No route recorded today yet.',
+              style: const TextStyle(color: AppColors.muted)),
           const SizedBox(height: 12),
           const Text('Streets today (automatic entry and exit)', style: TextStyle(fontWeight: FontWeight.w700)),
           if (mine.isEmpty) const Padding(padding: EdgeInsets.only(top: 6), child: Text('No street visits recorded today.')),
@@ -111,110 +138,191 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
     );
   }
 
+  Widget _legendChip(LiveState st, int n) => FilterChip(
+        avatar: Icon(Icons.circle, size: 14, color: _stateColor(st)),
+        label: Text('${_stateLabel(st)} ($n)'),
+        selected: _stateFilter == st,
+        onSelected: (v) => setState(() => _stateFilter = v ? st : null),
+      );
+
   @override
   Widget build(BuildContext context) {
     final problem = scopeProblem(widget.session);
-    return FutureBuilder<List<Geofence>>(
-      future: _fences,
-      builder: (context, fenceSnap) => StreamBuilder<List<Map<String, dynamic>>>(
-        stream: _visits,
-        builder: (context, visitSnap) => StreamBuilder<List<Map<String, dynamic>>>(
-          stream: _presence,
-          builder: (context, snap) {
-            final fences = fenceSnap.data ?? const <Geofence>[];
-            final people = snap.data ?? const <Map<String, dynamic>>[];
-            final visits = visitSnap.data ?? const <Map<String, dynamic>>[];
-            final names = {for (final f in fences) f.id: f.name};
-            final located = people.where((p) => p['lat'] is num && p['lng'] is num).toList();
-            final centre = located.isNotEmpty
-                ? LatLng((located.first['lat'] as num).toDouble(), (located.first['lng'] as num).toDouble())
-                : fences.isNotEmpty
-                    ? LatLng(fences.first.center?.lat ?? fences.first.ring.first.lat, fences.first.center?.lng ?? fences.first.ring.first.lng)
-                    : _defaultCentre;
-            final onDuty = people.where(_fresh).length;
-            return Column(children: [
-              if (problem != null) Padding(padding: const EdgeInsets.fromLTRB(12, 12, 12, 0), child: NoticeCard(text: problem)),
-              if (snap.hasError) Padding(padding: const EdgeInsets.all(12), child: Text('${snap.error}', style: const TextStyle(color: AppColors.danger))),
-              SizedBox(
-                height: 340,
-                child: FlutterMap(
-                  mapController: _map,
-                  options: MapOptions(initialCenter: centre, initialZoom: 15),
-                  children: [
-                    TileLayer(urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', userAgentPackageName: 'in.cit.smartattendance.v2'),
-                    CircleLayer(circles: [
-                      for (final f in fences.where((f) => f.kind == GeofenceKind.circle))
-                        CircleMarker(
-                          point: LatLng(f.center!.lat, f.center!.lng),
-                          radius: f.radiusM!,
-                          useRadiusInMeter: true,
-                          color: AppColors.green.withValues(alpha: 0.12),
-                          borderColor: AppColors.green,
-                          borderStrokeWidth: 2,
-                        ),
-                    ]),
-                    PolygonLayer(polygons: [
-                      for (final f in fences.where((f) => f.kind == GeofenceKind.polygon))
-                        Polygon(
-                          points: [for (final p in f.ring) LatLng(p.lat, p.lng)],
-                          color: AppColors.green.withValues(alpha: 0.12),
-                          borderColor: AppColors.green,
-                          borderStrokeWidth: 2,
-                        ),
-                    ]),
-                    if (_route.length > 1) PolylineLayer(polylines: [Polyline(points: _route, strokeWidth: 4, color: AppColors.indigo)]),
-                    MarkerLayer(markers: [
-                      for (final p in located)
-                        Marker(
-                          point: LatLng((p['lat'] as num).toDouble(), (p['lng'] as num).toDouble()),
-                          width: 44,
-                          height: 44,
-                          child: GestureDetector(
-                            onTap: () => _select(p, visits, fences),
-                            child: Icon(Icons.person_pin_circle,
-                                size: 40, color: p['uid'] == _selected ? AppColors.indigo : (_fresh(p) ? AppColors.success : AppColors.muted)),
-                          ),
-                        ),
-                    ]),
-                  ],
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _areas,
+      builder: (context, areaSnap) => FutureBuilder<List<Geofence>>(
+        future: _fences,
+        builder: (context, fenceSnap) => StreamBuilder<List<Map<String, dynamic>>>(
+          stream: _visits,
+          builder: (context, visitSnap) => StreamBuilder<List<Map<String, dynamic>>>(
+            stream: _presence,
+            builder: (context, snap) {
+              final areas = areaSnap.data ?? const <Map<String, dynamic>>[];
+              final fences = fenceSnap.data ?? const <Geofence>[];
+              final all = snap.data ?? const <Map<String, dynamic>>[];
+              final visits = visitSnap.data ?? const <Map<String, dynamic>>[];
+              final names = {for (final f in fences) f.id: f.name};
+              final counts = {for (final st in LiveState.values) st: all.where((p) => _stateOf(p) == st).length};
+              final people = all.where((p) {
+                if (_areaFilter != null && !(((p['areaPath'] as List?) ?? const []).contains(_areaFilter))) return false;
+                if (_typeFilter != null && p['designation'] != _typeFilter) return false;
+                if (_stateFilter != null && _stateOf(p) != _stateFilter) return false;
+                return true;
+              }).toList()
+                ..sort((a, b) {
+                  int rank(LiveState s) => switch (s) { LiveState.stale => 0, LiveState.moving => 1, LiveState.offDuty => 2 };
+                  return rank(_stateOf(a)).compareTo(rank(_stateOf(b)));
+                });
+              final shownFences = _areaFilter == null ? fences : fences.where((f) => f.areaPath.contains(_areaFilter)).toList();
+              final located = people.where((p) => p['lat'] is num && p['lng'] is num).toList();
+              final centre = located.isNotEmpty
+                  ? LatLng((located.first['lat'] as num).toDouble(), (located.first['lng'] as num).toDouble())
+                  : shownFences.isNotEmpty
+                      ? LatLng(shownFences.first.center?.lat ?? shownFences.first.ring.first.lat,
+                          shownFences.first.center?.lng ?? shownFences.first.ring.first.lng)
+                      : _defaultCentre;
+              return Column(children: [
+                if (problem != null) Padding(padding: const EdgeInsets.fromLTRB(12, 12, 12, 0), child: NoticeCard(text: problem)),
+                if (snap.hasError) Padding(padding: const EdgeInsets.all(12), child: Text('${snap.error}', style: const TextStyle(color: AppColors.danger))),
+                // Filters
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                  child: Row(children: [
+                    Expanded(
+                      child: DropdownButtonFormField<String?>(
+                        value: _areaFilter,
+                        isExpanded: true,
+                        isDense: true,
+                        decoration: const InputDecoration(labelText: 'Area', contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8)),
+                        items: [
+                          const DropdownMenuItem<String?>(value: null, child: Text('All areas')),
+                          for (final a in areas)
+                            DropdownMenuItem<String?>(
+                              value: a['id'] as String,
+                              child: Text('${'  ' * ((((a['path'] as List?)?.length ?? 1) - 1).clamp(0, 6))}${a['name']}', overflow: TextOverflow.ellipsis),
+                            ),
+                        ],
+                        onChanged: (v) => setState(() => _areaFilter = v),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: DropdownButtonFormField<String?>(
+                        value: _typeFilter,
+                        isExpanded: true,
+                        isDense: true,
+                        decoration: const InputDecoration(labelText: 'Staff type', contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8)),
+                        items: [
+                          const DropdownMenuItem<String?>(value: null, child: Text('All staff')),
+                          for (final d in Designation.values.where((d) => d.role == Role.worker))
+                            DropdownMenuItem<String?>(value: d.key, child: Text(d.title, overflow: TextOverflow.ellipsis)),
+                        ],
+                        onChanged: (v) => setState(() => _typeFilter = v),
+                      ),
+                    ),
+                  ]),
                 ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
-                child: Row(children: [
-                  Text('$onDuty on duty now · ${people.length} seen', style: const TextStyle(fontWeight: FontWeight.w700)),
-                  const Spacer(),
-                  const Text('© OpenStreetMap', style: TextStyle(fontSize: 11, color: AppColors.muted)),
-                ]),
-              ),
-              Expanded(
-                child: people.isEmpty
-                    ? const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(24),
-                          child: Text('No worker has started duty in your area yet. Workers appear here after they tap "Start duty".',
-                              textAlign: TextAlign.center, style: TextStyle(color: AppColors.muted)),
-                        ),
-                      )
-                    : ListView(children: [
-                        for (final p in people)
-                          ListTile(
-                            onTap: () {
-                              if (p['lat'] is num && p['lng'] is num) {
-                                _map.move(LatLng((p['lat'] as num).toDouble(), (p['lng'] as num).toDouble()), 16);
-                              }
-                              _select(p, visits, fences);
-                            },
-                            leading: Icon(Icons.circle, size: 14, color: _fresh(p) ? AppColors.success : AppColors.muted),
-                            title: Text('${p['workerName'] ?? 'Unnamed worker'}${p['synthetic'] == true ? ' (demo)' : ''}'),
-                            subtitle: Text('${p['geofenceId'] != null ? 'In ${names[p['geofenceId']] ?? 'a street'} · ' : ''}'
-                                '${p['onDuty'] == true ? 'on duty' : 'off duty'} · ${_ago(p['at'])}'),
-                            trailing: const Icon(Icons.route),
+                SizedBox(
+                  height: 44,
+                  child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4), children: [
+                    for (final st in LiveState.values) Padding(padding: const EdgeInsets.only(right: 6), child: _legendChip(st, counts[st] ?? 0)),
+                  ]),
+                ),
+                SizedBox(
+                  height: 320,
+                  child: FlutterMap(
+                    mapController: _map,
+                    options: MapOptions(initialCenter: centre, initialZoom: 15),
+                    children: [
+                      TileLayer(urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', userAgentPackageName: 'in.cit.smartattendance.v2'),
+                      CircleLayer(circles: [
+                        for (final f in shownFences.where((f) => f.kind == GeofenceKind.circle))
+                          CircleMarker(
+                            point: LatLng(f.center!.lat, f.center!.lng),
+                            radius: f.radiusM!,
+                            useRadiusInMeter: true,
+                            color: AppColors.green.withValues(alpha: 0.10),
+                            borderColor: AppColors.green,
+                            borderStrokeWidth: 2,
                           ),
                       ]),
-              ),
-            ]);
-          },
+                      PolygonLayer(polygons: [
+                        for (final f in shownFences.where((f) => f.kind == GeofenceKind.polygon))
+                          Polygon(
+                            points: [for (final p in f.ring) LatLng(p.lat, p.lng)],
+                            color: AppColors.green.withValues(alpha: 0.10),
+                            borderColor: AppColors.green,
+                            borderStrokeWidth: 2,
+                          ),
+                      ]),
+                      if (_route.length > 1) PolylineLayer(polylines: [Polyline(points: _route, strokeWidth: 4, color: AppColors.indigo)]),
+                      MarkerLayer(markers: [
+                        for (final p in located)
+                          Marker(
+                            point: LatLng((p['lat'] as num).toDouble(), (p['lng'] as num).toDouble()),
+                            width: 96,
+                            height: 58,
+                            child: GestureDetector(
+                              onTap: () => _select(p, visits),
+                              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                                Icon(Icons.person_pin_circle, size: 34, color: p['uid'] == _selected ? AppColors.indigo : _stateColor(_stateOf(p))),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                  decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.9), borderRadius: BorderRadius.circular(4)),
+                                  child: Text(
+                                    '${(p['workerName'] as String? ?? '').split(' ').first}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontSize: 11, color: AppColors.ink),
+                                  ),
+                                ),
+                              ]),
+                            ),
+                          ),
+                      ]),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                  child: Row(children: [
+                    Text('${people.length} shown of ${all.length}', style: const TextStyle(fontWeight: FontWeight.w700)),
+                    const Spacer(),
+                    const Text('© OpenStreetMap', style: TextStyle(fontSize: 11, color: AppColors.muted)),
+                  ]),
+                ),
+                Expanded(
+                  child: people.isEmpty
+                      ? const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(24),
+                            child: Text('Nobody matches. Workers appear here after they tap "Start duty"; change the filters to see more.',
+                                textAlign: TextAlign.center, style: TextStyle(color: AppColors.muted)),
+                          ),
+                        )
+                      : ListView(children: [
+                          for (final p in people)
+                            ListTile(
+                              onTap: () {
+                                if (p['lat'] is num && p['lng'] is num) {
+                                  _map.move(LatLng((p['lat'] as num).toDouble(), (p['lng'] as num).toDouble()), 17);
+                                }
+                                _select(p, visits);
+                              },
+                              leading: Icon(Icons.circle, size: 14, color: _stateColor(_stateOf(p))),
+                              title: Text('${p['workerName'] ?? 'Unnamed worker'}${p['synthetic'] == true ? ' (demo)' : ''}'),
+                              subtitle: Text([
+                                if (Designation.fromKey(p['designation'] as String?) case final Designation d) d.title,
+                                if (p['geofenceId'] != null) 'in ${names[p['geofenceId']] ?? 'a street'}',
+                                '${_stateLabel(_stateOf(p))} · ${_ago(p['at'])}',
+                              ].join(' · ')),
+                              trailing: const Icon(Icons.route),
+                            ),
+                        ]),
+                ),
+              ]);
+            },
+          ),
         ),
       ),
     );

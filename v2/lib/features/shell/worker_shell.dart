@@ -124,6 +124,31 @@ class _WorkerHomeState extends State<_WorkerHome> {
                     ? s.t('dutyOn', {'time': '${since.hour.toString().padLeft(2, '0')}:${since.minute.toString().padLeft(2, '0')}'})
                     : s.t('dutyOff')),
                 if (duty.lastError != null) Padding(padding: const EdgeInsets.only(top: 6), child: Text(duty.lastError!, style: const TextStyle(color: AppColors.danger, fontSize: 13))),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    icon: const Icon(Icons.phonelink_setup, size: 18),
+                    label: Text(s.t('phoneSetup')),
+                    onPressed: () => showDialog<void>(
+                      context: context,
+                      builder: (c) => AlertDialog(
+                        title: Text(s.t('phoneSetup')),
+                        content: SingleChildScrollView(child: Text(s.t('phoneSetupBody'), style: const TextStyle(height: 1.4))),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.pop(c), child: Text(s.t('cancel'))),
+                          FilledButton(
+                            style: FilledButton.styleFrom(minimumSize: const Size(120, 44)),
+                            onPressed: () {
+                              Navigator.pop(c);
+                              Location.openSettings('denied');
+                            },
+                            child: Text(s.t('openSettings')),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 12),
                 duty.onDuty
                     ? OutlinedButton.icon(

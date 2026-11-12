@@ -95,6 +95,30 @@ class PeopleScreen extends StatelessWidget {
     );
   }
 
+  Future<void> _confirmRemove(BuildContext context, Directory dir, Map<String, dynamic> p) async {
+    final signedIn = p['claimedBy'] != null;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text('Remove ${p['name'] ?? p['email']}?'),
+        content: Text(signedIn
+            ? 'This person has signed in. Removing them deletes all their roles, so they lose access to the app immediately. '
+                'Their past attendance, photos and reports are kept. This is recorded in the audit log.'
+            : 'They have not signed in yet. They will not be able to sign in unless added again.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.danger, minimumSize: const Size(96, 44)),
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await runWrite(() => dir.removePerson(p), done: '${p['email']} removed.');
+  }
+
   @override
   Widget build(BuildContext context) {
     final dir = Directory(session.user!);
@@ -132,13 +156,13 @@ class PeopleScreen extends StatelessWidget {
                         '${p['email']} · ${Designation.fromKey(p['designation'] as String?)?.title ?? session.titleOf(Role.fromKey(p['role'] as String?) ?? Role.worker)} · '
                         '${p['claimedBy'] != null ? 'signed in' : 'not signed in yet'}',
                       ),
-                      trailing: p['claimedBy'] == null
-                          ? IconButton(
+                      trailing: (_isOrgAdmin && p['claimedBy'] != null)
+                          ? null
+                          : IconButton(
                               tooltip: 'Remove',
-                              icon: const Icon(Icons.delete_outline),
-                              onPressed: () => runWrite(() => dir.removePreregistration('${p['email']}'), done: 'Removed.'),
-                            )
-                          : null,
+                              icon: const Icon(Icons.delete_outline, color: AppColors.danger),
+                              onPressed: () => _confirmRemove(context, dir, p),
+                            ),
                     ),
                 ]),
         );

@@ -122,6 +122,13 @@ class Directory {
   }) async {
     final key = emailKey(email);
     final ref = db.doc('preregistrations/$key');
+    final existing = await ref.get();
+    if (existing.exists) {
+      final signedIn = existing.data()?['claimedBy'] != null;
+      throw signedIn
+          ? '$key has already signed in. To change their staff type, role or area, use Setup → Access and tap their role.'
+          : '$key is already added (not signed in yet). Remove them from this list first, then add them again with the new details.';
+    }
     final b = AuditedBatch(db, user);
     b.batch.set(ref, {
       'email': key,
@@ -245,4 +252,42 @@ class Directory {
       });
 
   Future<void> deleteMessage(String id) => db.doc('messages/$id').delete();
+
+  // ----------------------------------------------------------- deletions
+  void _deleteRoleInto(AuditedBatch b, String assignmentId, Object? grantedAt, {String details = ''}) {
+    if (grantedAt is! Timestamp) {
+      throw 'This role has no grant time recorded and cannot be deleted. Switch it off instead.';
+    }
+    b.stampWithId('del_${assignmentId}_${grantedAt.millisecondsSinceEpoch}', 'role_deleted', 'roleAssignments/$assignmentId', details: details);
+    b.batch.delete(db.doc('roleAssignments/$assignmentId'));
+  }
+
+  /// Deletes one role (audited). Never the administrator's own role.
+  Future<void> deleteRole(Map<String, dynamic> assignment) async {
+    if (assignment['uid'] == user.uid) throw 'You cannot delete your own role.';
+    final b = AuditedBatch(db, user);
+    _deleteRoleInto(b, assignment['id'] as String, assignment['grantedAt'], details: '${assignment['role']}');
+    await b.commit();
+  }
+
+  /// Removes a person: before sign-in, their registration; after sign-in,
+  /// also every role they hold (audited), so they lose access at once.
+  /// Their past records stay for audit.
+  Future<int> removePerson(Map<String, dynamic> prereg) async {
+    final email = '${prereg['email']}';
+    final uid = prereg['claimedBy'] as String?;
+    if (uid == user.uid) throw 'You cannot remove yourself.';
+    final b = AuditedBatch(db, user);
+    var roles = 0;
+    if (uid != null) {
+      final snap = await db.collection('roleAssignments').where('uid', isEqualTo: uid).get();
+      for (final d in snap.docs) {
+        _deleteRoleInto(b, d.id, d.data()['grantedAt'], details: 'person removed: $email');
+        roles++;
+      }
+    }
+    b.batch.delete(db.doc('preregistrations/${emailKey(email)}'));
+    await b.commit();
+    return roles;
+  }
 }

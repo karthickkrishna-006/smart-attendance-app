@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 
 import '../domain/attendance.dart';
 import '../domain/geo.dart';
+import '../domain/live_update.dart';
 import '../domain/visits.dart';
 import 'attendance_repository.dart';
 import 'location.dart';
@@ -22,7 +23,8 @@ class DutyService extends ChangeNotifier {
   DutyService._();
   static final instance = DutyService._();
 
-  static const _every = Duration(seconds: 60);
+  static const _policy = LiveUpdatePolicy();
+  static const _routePolicy = LiveUpdatePolicy(minMoveM: 25);
 
   final _db = FirebaseFirestore.instance;
   SessionController? _session;
@@ -31,8 +33,10 @@ class DutyService extends ChangeNotifier {
   VisitTracker _tracker = VisitTracker();
   String? _openVisitId;
   Position? _last;
-  DateTime _lastPresence = DateTime(2000);
-  DateTime _lastRoute = DateTime(2000);
+  GeoPoint2? _sentPoint;
+  DateTime? _sentAt;
+  GeoPoint2? _routePoint;
+  DateTime? _routeAt;
   bool _handling = false;
   String? lastError;
   DateTime? startedAt;
@@ -56,6 +60,10 @@ class DutyService extends ChangeNotifier {
     _fences = await AttendanceRepository(_uid).geofencesFor(session.current?.areaIds ?? const []);
     _tracker = VisitTracker();
     _openVisitId = null;
+    _sentPoint = null;
+    _sentAt = null;
+    _routePoint = null;
+    _routeAt = null;
     final settings = defaultTargetPlatform == TargetPlatform.android
         ? AndroidSettings(
             accuracy: LocationAccuracy.high,
@@ -118,6 +126,7 @@ class DutyService extends ChangeNotifier {
         'lng': p.longitude,
         'accuracy': p.accuracy,
         'onDuty': onDuty,
+        'designation': _session!.current?.designation,
         'geofenceId': _tracker.current?.id,
         'at': FieldValue.serverTimestamp(),
         'synthetic': false,
@@ -138,12 +147,18 @@ class DutyService extends ChangeNotifier {
           await _closeVisit(e);
         }
       }
-      if (now.difference(_lastPresence) >= _every || events.isNotEmpty) {
-        _lastPresence = now;
+      final here = GeoPoint2(p.latitude, p.longitude);
+      // Smart updates: only after moving, every 5 minutes when still, or at
+      // once on a street entry/exit.
+      if (_policy.shouldSend(lastSent: _sentPoint, lastSentAt: _sentAt, now: here, accuracyM: p.accuracy, at: now, force: events.isNotEmpty)) {
+        _sentPoint = here;
+        _sentAt = now;
         await _guard(() => _writePresence(p, onDuty: true));
       }
-      if (now.difference(_lastRoute) >= _every && p.accuracy <= 50) {
-        _lastRoute = now;
+      if (p.accuracy <= 50 &&
+          _routePolicy.shouldSend(lastSent: _routePoint, lastSentAt: _routeAt, now: here, accuracyM: p.accuracy, at: now)) {
+        _routePoint = here;
+        _routeAt = now;
         final day = dayKey(now);
         await _guard(() => _db.doc('routes/${_uid}_$day').set({
               'uid': _uid,

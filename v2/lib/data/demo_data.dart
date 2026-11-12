@@ -172,7 +172,7 @@ class DemoData {
       live.set(db.doc('presence/$uid'), {
         'uid': uid, 'workerName': p.$1, 'orgId': null, 'areaPath': path,
         'lat': baseLat + 0.0003 * (i - 2), 'lng': baseLng + 0.0002 * (i - 2), 'accuracy': 8.0,
-        'onDuty': !p.$6, 'geofenceId': p.$6 ? null : 'demo-fence-${p.$2 + 1}',
+        'onDuty': !p.$6, 'designation': _designations.elementAt(i), 'geofenceId': p.$6 ? null : 'demo-fence-${p.$2 + 1}',
         'at': Timestamp.fromDate(now.subtract(Duration(minutes: p.$6 ? 90 : 2 + i))), 'synthetic': true,
       });
       live.set(db.doc('routes/${uid}_$day'), {

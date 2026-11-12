@@ -110,6 +110,11 @@ service cloud.firestore {
     }
 
     // ------------------------------------------------------- role assignments
+    // Audit entry id for deleting one role grant: del_<assignmentId>_<grantedAt ms>.
+    function deletionAuditId(assignmentId) {
+      return 'del_' + assignmentId + '_' + string(resource.data.grantedAt.toMillis());
+    }
+
     match /roleAssignments/{assignmentId} {
       allow get: if (signedIn() && resource.data.uid == uid()) || isSysAdmin();
       allow list: if (signedIn() && resource.data.uid == uid()) || isSysAdmin();
@@ -170,7 +175,14 @@ service cloud.firestore {
         && incoming().active is bool
         && audited('roleAssignments/' + assignmentId);
 
-      allow delete: if false;   // switch off instead, so history is kept
+      // The System administrator may delete someone else's role. The deletion
+      // must be recorded in the audit log in the same batch, under an id
+      // derived from this exact grant, so it can never go unrecorded.
+      allow delete: if isSysAdmin()
+        && resource.data.uid != uid()
+        && existsAfter(/databases/$(database)/documents/auditLog/$(deletionAuditId(assignmentId)))
+        && getAfter(/databases/$(database)/documents/auditLog/$(deletionAuditId(assignmentId))).data.actorUid == uid()
+        && getAfter(/databases/$(database)/documents/auditLog/$(deletionAuditId(assignmentId))).data.target == 'roleAssignments/' + assignmentId;
     }
 
     // ------------------------------------------------------- pre-registrations
@@ -215,8 +227,10 @@ service cloud.firestore {
           && designationOk(incoming().get('designation', null))
           && audited('preregistrations/' + key));
 
-      allow delete: if resource.data.get('claimedBy', null) == null
-        && (isSysAdmin() || isOrgAdminOf(resource.data.get('orgId', null)));
+      // The System administrator removes anyone (their roles are deleted, audited,
+      // in the same action); organisation admins only people not yet signed in.
+      allow delete: if isSysAdmin()
+        || (resource.data.get('claimedBy', null) == null && isOrgAdminOf(resource.data.get('orgId', null)));
     }
 
     // ------------------------------------------------------------ master data
@@ -627,8 +641,9 @@ service cloud.firestore {
       allow create, update: if (isSysAdmin() && demoRecord() && presenceId == incoming().uid)
         || (presenceId == uid()
           && incoming().keys().hasOnly(['uid', 'workerName', 'orgId', 'areaPath', 'lat', 'lng', 'accuracy', 'onDuty',
-                                        'geofenceId', 'at', 'synthetic'])
+                                        'geofenceId', 'at', 'synthetic', 'designation'])
           && ownWorkerRecord(incoming())
+          && incoming().get('designation', null) == assignment('worker').data.get('designation', null)
           && homePathOk(incoming().areaPath)
           && incoming().lat is number && incoming().lat >= -90 && incoming().lat <= 90
           && incoming().lng is number && incoming().lng >= -180 && incoming().lng <= 180

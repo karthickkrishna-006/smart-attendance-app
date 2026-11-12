@@ -56,7 +56,14 @@ Future<void> runWrite(Future<void> Function() write, {required String done}) asy
     await write();
     showToast(done, kind: ToastKind.success);
   } catch (e) {
-    showToast('Not saved: $e', kind: ToastKind.error);
+    final refused = '$e'.contains('permission-denied');
+    showToast(
+      refused
+          ? 'Not saved: Firebase refused it. Usually the Firestore rules in Firebase are older than this app: '
+              'publish v2/firestore.rules from GitHub (Firestore → Rules → Publish) and try again.'
+          : 'Not saved: $e',
+      kind: ToastKind.error,
+    );
   }
 }
 
@@ -294,10 +301,37 @@ class _AccessTab extends StatelessWidget {
                       '${((a['areaIds'] as List?) ?? const []).length} area(s) · tap to edit',
                     ),
                     onTap: () => _editScope(context, a),
-                    trailing: Switch(
-                      value: a['active'] == true,
-                      onChanged: (v) => runWrite(() => dir.setRoleActive(a['id'] as String, v), done: v ? 'Role switched on.' : 'Role switched off.'),
-                    ),
+                    trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Switch(
+                        value: a['active'] == true,
+                        onChanged: (v) => runWrite(() => dir.setRoleActive(a['id'] as String, v), done: v ? 'Role switched on.' : 'Role switched off.'),
+                      ),
+                      if (a['uid'] != dir.user.uid)
+                        IconButton(
+                          tooltip: 'Delete role',
+                          icon: const Icon(Icons.delete_outline, color: AppColors.danger),
+                          onPressed: () async {
+                            final ok = await showDialog<bool>(
+                              context: context,
+                              builder: (c) => AlertDialog(
+                                title: const Text('Delete this role?'),
+                                content: Text('${names[a['uid']] ?? a['uid']} loses the role '
+                                    '"${Role.fromKey(a['role'] as String?)?.defaultTitle ?? a['role']}" immediately. '
+                                    'Their past records are kept. This is recorded in the audit log.'),
+                                actions: [
+                                  TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
+                                  FilledButton(
+                                    style: FilledButton.styleFrom(backgroundColor: AppColors.danger, minimumSize: const Size(96, 44)),
+                                    onPressed: () => Navigator.pop(c, true),
+                                    child: const Text('Delete'),
+                                  ),
+                                ],
+                              ),
+                            );
+                            if (ok == true) await runWrite(() => dir.deleteRole(a), done: 'Role deleted.');
+                          },
+                        ),
+                    ]),
                   ),
               ]),
             );

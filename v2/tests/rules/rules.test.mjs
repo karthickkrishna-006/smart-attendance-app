@@ -518,13 +518,14 @@ test('demo data: synthetic only, removable, never disguised as a real worker', a
 // =============================================================== Module 3: live tracking, routes, street visits
 const presence = (uid, extra = {}) => ({
   uid, workerName: workerNames[uid] ?? '', orgId: uid === 'w1' ? 'orgA' : 'orgB', areaPath: uid === 'w1' ? ['d1', 'b1'] : [],
-  lat: 12.69, lng: 79.97, accuracy: 9, onDuty: true, geofenceId: null, at: serverTimestamp(), synthetic: false, ...extra,
+  lat: 12.69, lng: 79.97, accuracy: 9, onDuty: true, designation: null, geofenceId: null, at: serverTimestamp(), synthetic: false, ...extra,
 });
 
 test('live location: own record only; seen by Collector and area officers, not org admins or auditors', async () => {
   const w1 = as('w1', 'w1@x.in').db;
   await assertFails(setDoc(doc(w1, 'presence/w1'), presence('w1', { workerName: 'Fake' })));
   await assertFails(setDoc(doc(w1, 'presence/w1'), presence('w1', { areaPath: ['d1', 'b2'] })));      // not their home area
+  await assertFails(setDoc(doc(w1, 'presence/w1'), presence('w1', { designation: 'bdo_block' })));   // not their staff type
   await assertFails(setDoc(doc(w1, 'presence/w2'), presence('w2')));                                  // someone else
   await assertSucceeds(setDoc(doc(w1, 'presence/w1'), presence('w1')));
   await assertSucceeds(setDoc(doc(as('w2', 'w2@x.in').db, 'presence/w2'), presence('w2')));        // no area: empty path
@@ -668,4 +669,30 @@ test('messages: the district admin sends, every active account reads', async () 
   await assertSucceeds(getDoc(doc(as('w1', 'w1@x.in').db, 'messages/m1')));
   await assertFails(getDoc(doc(as('dis', 'dis@x.in').db, 'messages/m1')));                       // disabled account
   await assertFails(updateDoc(doc(admin().db, 'messages/m1'), { body: 'changed' }));
+});
+
+test('deleting a role: administrator only, never their own, always recorded in the audit log', async () => {
+  const granted = Timestamp.fromMillis(1700000000000);
+  await seed('roleAssignments/w1__worker', { uid: 'w1', role: 'worker', areaIds: ['b1'], orgId: 'orgA', active: true, source: 'admin', grantedBy: 'adm', grantedAt: granted });
+  await seed('roleAssignments/adm__sys_admin', { uid: 'adm', role: 'sys_admin', areaIds: [], active: true, source: 'bootstrap', grantedBy: 'adm', grantedAt: granted });
+  const a = admin();
+  const del = (who, id, auditId, target) => {
+    const b = writeBatch(who.db);
+    b.set(doc(who.db, `auditLog/${auditId}`), { actorUid: who.uid, actorEmail: who.email, action: 'role_deleted', target, details: '', at: serverTimestamp() });
+    b.delete(doc(who.db, `roleAssignments/${id}`));
+    return b.commit();
+  };
+  await assertFails(deleteDoc(doc(a.db, 'roleAssignments/w1__worker')));                                                    // no audit entry
+  await assertFails(del(a, 'w1__worker', 'del_w1__worker_123', 'roleAssignments/w1__worker'));                             // wrong id
+  await assertFails(del(a, 'w1__worker', 'del_w1__worker_1700000000000', 'roleAssignments/w2__worker'));                   // wrong target
+  await assertFails(del(as('col', 'col@x.in'), 'w1__worker', 'del_w1__worker_1700000000000', 'roleAssignments/w1__worker')); // not the administrator
+  await assertFails(del(a, 'adm__sys_admin', 'del_adm__sys_admin_1700000000000', 'roleAssignments/adm__sys_admin'));       // own role: never
+  await assertSucceeds(del(a, 'w1__worker', 'del_w1__worker_1700000000000', 'roleAssignments/w1__worker'));
+});
+
+test('removing a signed-in person: administrator only', async () => {
+  await seed('preregistrations/gone@x.in', { email: 'gone@x.in', role: 'worker', areaIds: [], orgId: 'orgA', createdBy: 'oa', claimedBy: 'g1' });
+  await assertFails(deleteDoc(doc(as('oa', 'oa@firm-a.in').db, 'preregistrations/gone@x.in')));   // organisation admin: only before sign-in
+  await assertFails(deleteDoc(doc(as('w1', 'w1@x.in').db, 'preregistrations/gone@x.in')));
+  await assertSucceeds(deleteDoc(doc(admin().db, 'preregistrations/gone@x.in')));
 });

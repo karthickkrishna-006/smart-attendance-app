@@ -27,6 +27,18 @@ class AuditedBatch {
     return {'auditId': entry.id};
   }
 
+  /// An audit entry with a given id (used for deletions, whose id the rules derive).
+  void stampWithId(String id, String action, String target, {String details = ''}) {
+    batch.set(db.collection('auditLog').doc(id), {
+      'actorUid': user.uid,
+      'actorEmail': user.email,
+      'action': action,
+      'target': target,
+      'details': details,
+      'at': FieldValue.serverTimestamp(),
+    });
+  }
+
   Future<void> commit() => batch.commit();
 }
 

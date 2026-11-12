@@ -204,6 +204,8 @@ class Strings {
     'd_bdo_block': 'BDO (Block Panchayat)',
     'd_district_monitor': 'District monitoring',
     'ev_water_opened': 'the water is opened from the overhead tank',
+    'phoneSetup': 'Phone setup for tracking',
+    'phoneSetupBody': 'Some phones (Redmi, Xiaomi, Vivo, Oppo, Realme) stop apps in the background, which stops your duty tracking. Do this once:\n\n1. Tap "Open settings" below.\n2. Battery saver: choose "No restrictions".\n3. Autostart: turn ON.\n4. Notifications: allow.\n5. Location: allow "While using the app" or "Always".\n\nThe names can differ slightly on your phone.',
   };
 
   static const _ta = <String, String>{
@@ -390,6 +392,8 @@ class Strings {
     'd_bdo_block': 'வட்டார வளர்ச்சி அலுவலர் (வட்டார ஊராட்சி)',
     'd_district_monitor': 'மாவட்டக் கண்காணிப்பு',
     'ev_water_opened': 'மேல்நிலைத் தொட்டியிலிருந்து தண்ணீர் திறக்கப்படும்போது',
+    'phoneSetup': 'கண்காணிப்புக்கான தொலைபேசி அமைப்பு',
+    'phoneSetupBody': 'சில தொலைபேசிகள் (Redmi, Xiaomi, Vivo, Oppo, Realme) பின்னணியில் செயலிகளை நிறுத்துகின்றன; அதனால் உங்கள் பணிக் கண்காணிப்பு நின்றுவிடும். இதை ஒருமுறை செய்யுங்கள்:\n\n1. கீழே உள்ள "அமைப்புகளைத் திற" என்பதைத் தட்டவும்.\n2. பேட்டரி சேமிப்பு: "கட்டுப்பாடுகள் இல்லை" என்பதைத் தேர்ந்தெடுக்கவும்.\n3. தானியங்கித் தொடக்கம் (Autostart): இயக்கவும்.\n4. அறிவிப்புகள்: அனுமதிக்கவும்.\n5. இருப்பிடம்: "செயலியைப் பயன்படுத்தும்போது" அல்லது "எப்போதும்" அனுமதிக்கவும்.\n\nஉங்கள் தொலைபேசியில் பெயர்கள் சற்று மாறுபடலாம்.',
   };
 
   /// Keys present in English but missing in Tamil (checked by a unit test).
