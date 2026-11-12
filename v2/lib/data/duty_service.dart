@@ -201,7 +201,8 @@ class DutyService extends ChangeNotifier {
       final today = await repo.today().get();
       if (today.exists) return;
       final preview = repo.preview(p, _fences, hasAssignedArea: (_session!.current?.areaIds ?? const []).isNotEmpty);
-      await repo.checkIn(preview, orgId: _orgId, workerName: _name);
+      await repo.checkIn(preview,
+          orgId: _orgId, workerName: _name, designation: _session!.current?.designation, homePath: _session!.homePath);
     });
   }
 }

@@ -118,6 +118,7 @@ class Directory {
     String? name,
     String? employeeId,
     String? orgId,
+    String? designation,
   }) async {
     final key = emailKey(email);
     final ref = db.doc('preregistrations/$key');
@@ -129,6 +130,7 @@ class Directory {
       if (name != null && name.trim().isNotEmpty) 'name': name.trim(),
       if (employeeId != null && employeeId.trim().isNotEmpty) 'employeeId': employeeId.trim(),
       if (orgId != null) 'orgId': orgId,
+      if (designation != null) 'designation': designation,
       'createdBy': user.uid,
       'createdAt': FieldValue.serverTimestamp(),
       ...b.stamp('person_added', 'preregistrations/$key', details: role.key),
@@ -157,11 +159,12 @@ class Directory {
   }
 
   /// Changes which areas (and organisation) an existing role covers.
-  Future<void> updateRoleScope(String assignmentId, {required List<String> areaIds, String? orgId}) async {
+  Future<void> updateRoleScope(String assignmentId, {required List<String> areaIds, String? orgId, String? designation}) async {
     final b = AuditedBatch(db, user);
     b.batch.update(db.doc('roleAssignments/$assignmentId'), {
       'areaIds': areaIds,
       'orgId': orgId,
+      'designation': designation,
       ...b.stamp('role_scope_changed', 'roleAssignments/$assignmentId', details: areaIds.join(',')),
     });
     await b.commit();
@@ -220,4 +223,26 @@ class Directory {
     });
     await b.commit();
   }
+
+  // --------------------------------------------------------------- messages
+  Future<void> sendMessage({
+    required String title,
+    required String body,
+    required bool urgent,
+    required List<String> designations,
+    required List<String> roles,
+    required String senderName,
+  }) =>
+      db.collection('messages').add({
+        'title': title.trim(),
+        'body': body.trim(),
+        'priority': urgent ? 'urgent' : 'normal',
+        'designations': designations,
+        'roles': roles,
+        'createdBy': user.uid,
+        'createdByName': senderName,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+  Future<void> deleteMessage(String id) => db.doc('messages/$id').delete();
 }

@@ -4,6 +4,7 @@ import '../../app/theme.dart';
 import '../../app/ui.dart';
 import '../../data/directory.dart';
 import '../../data/session_controller.dart';
+import '../../domain/designations.dart';
 import '../../domain/roles.dart';
 import 'scope_picker.dart';
 import 'setup_screen.dart' show runWrite;
@@ -24,6 +25,7 @@ class PeopleScreen extends StatelessWidget {
     final name = TextEditingController();
     final employeeId = TextEditingController();
     var role = Role.worker;
+    Designation? designation = _isOrgAdmin ? Designation.thoomaiKavalar : null;
     final ok = await showDialog<bool>(
       context: context,
       builder: (c) => StatefulBuilder(
@@ -36,6 +38,22 @@ class PeopleScreen extends StatelessWidget {
               TextField(controller: name, decoration: const InputDecoration(labelText: 'Full name')),
               const SizedBox(height: 12),
               TextField(controller: employeeId, decoration: const InputDecoration(labelText: 'Employee ID (optional)')),
+              const SizedBox(height: 12),
+              // Staff type first: it presets the right role (still changeable).
+              DropdownButtonFormField<Designation?>(
+                value: designation,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Staff type'),
+                items: [
+                  if (!_isOrgAdmin) const DropdownMenuItem<Designation?>(value: null, child: Text('None / other')),
+                  for (final d in Designation.values.where((d) => !_isOrgAdmin || d.role == Role.worker))
+                    DropdownMenuItem<Designation?>(value: d, child: Text(d.title, overflow: TextOverflow.ellipsis)),
+                ],
+                onChanged: (v) => set(() {
+                  designation = v;
+                  if (v != null && !_isOrgAdmin) role = v.role;
+                }),
+              ),
               const SizedBox(height: 12),
               if (!_isOrgAdmin)
                 DropdownButtonFormField<Role>(
@@ -71,6 +89,7 @@ class PeopleScreen extends StatelessWidget {
         name: name.text,
         employeeId: employeeId.text,
         orgId: scope.orgId,
+        designation: designation?.key,
       ),
       done: '${email.text.trim()} can now sign in.',
     );
@@ -110,7 +129,7 @@ class PeopleScreen extends StatelessWidget {
                       leading: Icon(p['claimedBy'] != null ? Icons.verified_user_outlined : Icons.schedule, color: p['claimedBy'] != null ? AppColors.success : AppColors.turmeric),
                       title: Text('${p['name'] ?? p['email']}'),
                       subtitle: Text(
-                        '${p['email']} · ${session.titleOf(Role.fromKey(p['role'] as String?) ?? Role.worker)} · '
+                        '${p['email']} · ${Designation.fromKey(p['designation'] as String?)?.title ?? session.titleOf(Role.fromKey(p['role'] as String?) ?? Role.worker)} · '
                         '${p['claimedBy'] != null ? 'signed in' : 'not signed in yet'}',
                       ),
                       trailing: p['claimedBy'] == null

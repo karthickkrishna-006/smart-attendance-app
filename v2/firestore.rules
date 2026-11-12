@@ -55,6 +55,11 @@ service cloud.firestore {
     function roles() {
       return ['collector', 'officer', 'zonal_secretary', 'supervisor', 'org_admin', 'worker', 'auditor', 'sys_admin'];
     }
+    // Job titles (lib/domain/designations.dart). null = none.
+    function designationOk(d) {
+      return d == null || d in ['thoomai_kavalar', 'oht_operator', 'mnp', 'vp_secretary', 'zonal_dy_bdo',
+                                'dy_bdo_panchayats', 'bdo_village', 'dy_bdo_regular', 'bdo_block', 'district_monitor'];
+    }
 
     // The write must come with auditLog/{incoming().auditId}, written in the
     // same batch by this person, naming this exact target. The entry must be
@@ -110,10 +115,11 @@ service cloud.firestore {
       allow list: if (signedIn() && resource.data.uid == uid()) || isSysAdmin();
 
       function shapeOk() {
-        return incoming().keys().hasOnly(['uid', 'role', 'areaIds', 'orgId', 'active', 'source', 'grantedBy', 'grantedAt', 'auditId'])
+        return incoming().keys().hasOnly(['uid', 'role', 'areaIds', 'orgId', 'active', 'source', 'grantedBy', 'grantedAt', 'auditId', 'designation'])
           && incoming().role in roles()
+          && designationOk(incoming().get('designation', null))
           && assignmentId == incoming().uid + '__' + incoming().role
-          && incoming().areaIds is list && incoming().areaIds.size() <= 10
+          && incoming().areaIds is list && incoming().areaIds.size() <= 15
           && incoming().active == true
           && incoming().grantedAt == request.time
           && audited('roleAssignments/' + assignmentId);
@@ -132,6 +138,7 @@ service cloud.firestore {
             && incoming().role == prereg().data.role
             && incoming().areaIds == prereg().data.areaIds
             && incoming().get('orgId', null) == prereg().data.get('orgId', null)
+            && incoming().get('designation', null) == prereg().data.get('designation', null)
             && incoming().grantedBy == prereg().data.createdBy)
 
         // 3. Open sign-up (only when switched on): a field worker with no area
@@ -157,8 +164,9 @@ service cloud.firestore {
       // Only the System administrator changes a role's areas, organisation or
       // on/off state (audited). Who holds it and which role it is never change.
       allow update: if isSysAdmin()
-        && changed().hasOnly(['areaIds', 'orgId', 'active', 'auditId'])
-        && incoming().areaIds is list && incoming().areaIds.size() <= 10
+        && changed().hasOnly(['areaIds', 'orgId', 'active', 'auditId', 'designation'])
+        && designationOk(incoming().get('designation', null))
+        && incoming().areaIds is list && incoming().areaIds.size() <= 15
         && incoming().active is bool
         && audited('roleAssignments/' + assignmentId);
 
@@ -173,11 +181,12 @@ service cloud.firestore {
       allow list: if isSysAdmin() || (resource.data.get('orgId', null) != null && isOrgAdminOf(resource.data.orgId));
 
       function preregShape() {
-        return incoming().keys().hasOnly(['email', 'name', 'employeeId', 'orgId', 'role', 'areaIds', 'createdBy', 'createdAt', 'auditId'])
+        return incoming().keys().hasOnly(['email', 'name', 'employeeId', 'orgId', 'role', 'areaIds', 'createdBy', 'createdAt', 'auditId', 'designation'])
           && key == incoming().email
           && incoming().email == incoming().email.lower()
           && incoming().role in roles()
-          && incoming().areaIds is list && incoming().areaIds.size() <= 10
+          && designationOk(incoming().get('designation', null))
+          && incoming().areaIds is list && incoming().areaIds.size() <= 15
           && incoming().createdBy == uid()
           && incoming().createdAt == request.time
           && audited('preregistrations/' + key);
@@ -201,8 +210,9 @@ service cloud.firestore {
         || (resource.data.get('claimedBy', null) == null
           && (isSysAdmin() || (isOrgAdminOf(resource.data.get('orgId', null)) && incoming().role == 'worker'
                                && incoming().get('orgId', null) == resource.data.orgId))
-          && changed().hasOnly(['name', 'employeeId', 'areaIds', 'role', 'orgId', 'auditId'])
+          && changed().hasOnly(['name', 'employeeId', 'areaIds', 'role', 'orgId', 'auditId', 'designation'])
           && incoming().role in roles()
+          && designationOk(incoming().get('designation', null))
           && audited('preregistrations/' + key));
 
       allow delete: if resource.data.get('claimedBy', null) == null
@@ -217,7 +227,7 @@ service cloud.firestore {
       allow create, update: if isSysAdmin()
         && incoming().keys().hasOnly(['name', 'level', 'parentId', 'path', 'provisional', 'auditId'])
         && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 120
-        && incoming().level in ['district', 'block', 'zone', 'panchayat', 'location']
+        && incoming().level in ['district', 'block', 'zone', 'panchayat', 'habitation', 'location']
         && incoming().provisional is bool
         && ((incoming().level == 'district'
               && incoming().get('parentId', null) == null && incoming()['path'] == [areaId])
@@ -296,7 +306,7 @@ service cloud.firestore {
       return parts.size() == 3
         && (sameIstDay(parts, istNow()) || sameIstDay(parts, istNow() - duration.value(1, 'd')));
     }
-    // True when one of the officer's area ids (at most 10, enforced on every
+    // True when one of the officer's area ids (at most 15, enforced on every
     // role) appears in the record's area path. Each check is "<id> in <list>",
     // which Firestore can prove for a query filtered with
     // where('areaPath', 'array-contains', <id>). (A hasAny() comparison
@@ -312,7 +322,12 @@ service cloud.firestore {
         || (ids.size() > 6 && ids[6] in recordAreaPath)
         || (ids.size() > 7 && ids[7] in recordAreaPath)
         || (ids.size() > 8 && ids[8] in recordAreaPath)
-        || (ids.size() > 9 && ids[9] in recordAreaPath);
+        || (ids.size() > 9 && ids[9] in recordAreaPath)
+        || (ids.size() > 10 && ids[10] in recordAreaPath)
+        || (ids.size() > 11 && ids[11] in recordAreaPath)
+        || (ids.size() > 12 && ids[12] in recordAreaPath)
+        || (ids.size() > 13 && ids[13] in recordAreaPath)
+        || (ids.size() > 14 && ids[14] in recordAreaPath);
     }
     function coversPath(role, recordAreaPath) {
       return hasRole(role) && inAreas(assignment(role).data.areaIds, recordAreaPath);
@@ -395,22 +410,25 @@ service cloud.firestore {
         || (isSysAdmin() && resource.data.get('synthetic', false) == true);
 
       allow create: if (isSysAdmin() && demoRecord())
-        || hasRole('worker')
-        && incoming().keys().hasOnly(['uid', 'workerName', 'date', 'orgId', 'areaPath', 'checkIn', 'evaluatedBy', 'createdAt'])
+        || incoming().get('role', 'worker') in roles()
+        && hasRole(incoming().get('role', 'worker'))
+        && incoming().keys().hasOnly(['uid', 'workerName', 'date', 'orgId', 'areaPath', 'checkIn', 'evaluatedBy', 'createdAt', 'role', 'designation'])
+        && incoming().get('designation', null) == assignment(incoming().get('role', 'worker')).data.get('designation', null)
         && incoming().uid == uid()
         // The name officers see must be the name on the worker's own account.
         && incoming().workerName == get(/databases/$(database)/documents/accounts/$(uid())).data.get('displayName', '')
         && incoming().date is string
         && sessionId == uid() + '_' + incoming().date
         && isRecentIstDate(incoming().date)
-        && incoming().get('orgId', null) == assignment('worker').data.get('orgId', null)
+        && incoming().get('orgId', null) == assignment(incoming().get('role', 'worker')).data.get('orgId', null)
         && incoming().evaluatedBy == 'device'
         && incoming().createdAt == request.time
         && validCheckIn(incoming().checkIn)
-        && ((incoming().checkIn.get('geofenceId', null) == null && incoming().areaPath == [])
+        && ((incoming().checkIn.get('geofenceId', null) == null
+              && roleHomePathOk(incoming().get('role', 'worker'), incoming().areaPath))
             || (incoming().checkIn.geofenceId is string
                 && incoming().areaPath == get(/databases/$(database)/documents/geofences/$(incoming().checkIn.geofenceId)).data.areaPath
-                && assignment('worker').data.areaIds.hasAny(incoming().areaPath)));
+                && assignment(incoming().get('role', 'worker')).data.areaIds.hasAny(incoming().areaPath)));
 
       // Check-out once; the check-in itself can never be edited.
       allow update: if signedIn() && resource.data.uid == uid()
@@ -420,6 +438,14 @@ service cloud.firestore {
         && validCheckOut(incoming().checkOut);
 
       allow delete: if isSysAdmin() && resource.data.get('synthetic', false) == true;
+    }
+
+    // Records made outside any boundary belong to the role's first area (so the
+    // person's superiors still see them), or to no area if the role has none.
+    function roleHomePathOk(role, path) {
+      return (assignment(role).data.areaIds.size() == 0 && path == [])
+        || (assignment(role).data.areaIds.size() > 0
+            && path == get(/databases/$(database)/documents/areas/$(assignment(role).data.areaIds[0])).data['path']);
     }
 
     // ------------------------------------------------------ demo data helpers
@@ -655,6 +681,81 @@ service cloud.firestore {
         && incoming().durationMin is number && incoming().durationMin >= 0
         && incoming().closedAt == request.time;
       allow delete: if isSysAdmin() && resource.data.get('synthetic', false) == true;
+    }
+
+    // ------------------------------------------------------ GPS photo attendance
+    // Every staff member with a designation takes GPS photos during the day
+    // (schedules in lib/domain/designations.dart). One photo per record.
+    match /photoAttendance/{punchId} {
+      allow read: if (signedIn() && resource.data.get('uid', null) == uid())
+        || officerSees(resource.data)
+        || (isSysAdmin() && resource.data.get('synthetic', false) == true);
+      allow create: if (isSysAdmin() && demoRecord())
+        || (incoming().keys().hasOnly(['uid', 'workerName', 'role', 'designation', 'date', 'orgId', 'areaPath', 'slot',
+                                       'lat', 'lng', 'accuracy', 'mocked', 'placement', 'geofenceId', 'status', 'reasons',
+                                       'note', 'capturedAt', 'createdAt', 'synthetic'])
+          && incoming().role in roles()
+          && hasRole(incoming().role)
+          && incoming().designation is string
+          && incoming().designation == assignment(incoming().role).data.get('designation', null)
+          && incoming().uid == uid()
+          && incoming().workerName == get(/databases/$(database)/documents/accounts/$(uid())).data.get('displayName', '')
+          && incoming().date is string && isRecentIstDate(incoming().date)
+          && incoming().get('orgId', null) == assignment(incoming().role).data.get('orgId', null)
+          && (incoming().slot == null || (incoming().slot is string && incoming().slot.matches('[0-9]{2}:[0-9]{2}')))
+          && incoming().lat is number && incoming().lat >= -90 && incoming().lat <= 90
+          && incoming().lng is number && incoming().lng >= -180 && incoming().lng <= 180
+          && incoming().accuracy is number
+          && incoming().mocked is bool
+          && incoming().placement in ['inside', 'outside', 'uncertain', 'none']
+          && incoming().status in ['verified', 'flagged']
+          && incoming().reasons is list
+          && (incoming().status == 'flagged'
+              || (incoming().reasons.size() == 0 && incoming().mocked == false
+                  && incoming().geofenceId is string && incoming().placement == 'inside'))
+          && ((incoming().geofenceId == null && roleHomePathOk(incoming().role, incoming().areaPath))
+              || (incoming().geofenceId is string
+                  && incoming().areaPath == get(/databases/$(database)/documents/geofences/$(incoming().geofenceId)).data.areaPath
+                  && assignment(incoming().role).data.areaIds.hasAny(incoming().areaPath)))
+          && (incoming().note == null || (incoming().note is string && incoming().note.size() <= 200))
+          && incoming().capturedAt is timestamp
+          && incoming().createdAt == request.time
+          && incoming().synthetic == false
+          // The photo itself is saved in this same batch.
+          && existsAfter(/databases/$(database)/documents/photoAttendancePhotos/$(punchId)));
+      allow update: if false;
+      allow delete: if isSysAdmin() && resource.data.get('synthetic', false) == true;
+    }
+
+    match /photoAttendancePhotos/{punchId} {
+      allow get: if (signedIn() && resource != null && resource.data.uid == uid())
+        || (resource != null && officerSees(get(/databases/$(database)/documents/photoAttendance/$(punchId)).data));
+      allow create: if signedIn()
+        && incoming().keys().hasOnly(['uid', 'jpeg', 'sizeBytes', 'createdAt'])
+        && incoming().uid == uid()
+        && incoming().jpeg is bytes && incoming().jpeg.size() > 0 && incoming().jpeg.size() <= 700 * 1024
+        && incoming().sizeBytes == incoming().jpeg.size()
+        && incoming().createdAt == request.time
+        && !exists(/databases/$(database)/documents/photoAttendance/$(punchId))
+        && getAfter(/databases/$(database)/documents/photoAttendance/$(punchId)).data.uid == uid();
+      allow update, delete: if false;
+    }
+
+    // -------------------------------------------------------------- messages
+    // District admin messages to all staff or chosen designations / roles.
+    match /messages/{messageId} {
+      allow read: if accountActive();
+      allow create: if isSysAdmin()
+        && incoming().keys().hasOnly(['title', 'body', 'priority', 'designations', 'roles', 'createdBy', 'createdByName', 'createdAt'])
+        && incoming().title is string && incoming().title.size() > 0 && incoming().title.size() <= 120
+        && incoming().body is string && incoming().body.size() > 0 && incoming().body.size() <= 2000
+        && incoming().priority in ['normal', 'urgent']
+        && incoming().designations is list && incoming().designations.size() <= 20
+        && incoming().roles is list && incoming().roles.size() <= 10
+        && incoming().createdBy == uid()
+        && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isSysAdmin();
     }
 
     // Everything else is closed.

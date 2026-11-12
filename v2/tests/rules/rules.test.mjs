@@ -299,7 +299,7 @@ const checkIn = (extra = {}) => ({
 });
 const workerNames = { w1: 'Worker One', w2: '' };
 const session = (uid, extra = {}, ci = {}) => ({
-  uid, workerName: workerNames[uid] ?? '', date: istToday(), orgId: 'orgA', areaPath: ['d1', 'b1'], evaluatedBy: 'device', createdAt: serverTimestamp(),
+  uid, workerName: workerNames[uid] ?? '', role: 'worker', date: istToday(), orgId: 'orgA', areaPath: ['d1', 'b1'], evaluatedBy: 'device', createdAt: serverTimestamp(),
   checkIn: checkIn(ci), ...extra,
 });
 
@@ -399,10 +399,10 @@ test('attendance: who can read it', async () => {
   await assertFails(getDocs(query(collection(w, 'attendanceSessions'), where('uid', '==', 'w2'))));
 });
 
-test('a role or pre-registration covers at most 10 areas', async () => {
+test('a role or pre-registration covers at most 15 areas', async () => {
   const a = admin();
-  const eleven = Array.from({ length: 11 }, (_, i) => `a${i}`);
-  const ten = eleven.slice(0, 10);
+  const eleven = Array.from({ length: 16 }, (_, i) => `a${i}`);   // 16: one too many
+  const ten = eleven.slice(0, 15);                                 // 15: the limit
   const grant = (areaIds) => {
     const b = writeBatch(a.db);
     b.update(doc(a.db, 'roleAssignments/w1__worker'), { areaIds, auditId: audit(b, a, 'roleAssignments/w1__worker') });
@@ -586,4 +586,86 @@ test('demo data: "Create" twice must replace, not overwrite; admin removes synth
   await assertSucceeds(deleteDoc(doc(a, 'tasks/demo-t1')));
   await seed('visits/real-v1', { ...synthetic, uid: 'w1', synthetic: false });
   await assertFails(deleteDoc(doc(a, 'visits/real-v1')));                     // never a real record
+});
+
+
+// =============================================================== Village panchayat staff, photo attendance, messages
+test('designations: prepared by the admin, copied exactly on first sign-in', async () => {
+  const a = admin();
+  await assertSucceeds(addPrereg(a, 'tk@x.in', { role: 'worker', designation: 'thoomai_kavalar', areaIds: ['b1'] }));
+  await assertFails(addPrereg(a, 'bad@x.in', { role: 'worker', designation: 'chief_minister' }));
+  await seed('preregistrations/sec@x.in', { email: 'sec@x.in', role: 'supervisor', designation: 'vp_secretary', areaIds: ['b1'], createdBy: 'adm' });
+  const claimAs = (designation) => {
+    const who = as('sec1', 'sec@x.in');
+    const b = writeBatch(who.db);
+    b.set(doc(who.db, 'accounts/sec1'), account('sec@x.in'));
+    b.set(doc(who.db, 'roleAssignments/sec1__supervisor'), assignment('sec1', 'supervisor', {
+      areaIds: ['b1'], source: 'preregistration', grantedBy: 'adm', designation,
+      auditId: audit(b, who, 'roleAssignments/sec1__supervisor', 'account_claimed'),
+    }));
+    b.update(doc(who.db, 'preregistrations/sec@x.in'), { claimedBy: 'sec1', claimedAt: serverTimestamp() });
+    return b.commit();
+  };
+  await assertFails(claimAs('bdo_block'));        // a different designation
+  await assertSucceeds(claimAs('vp_secretary'));
+});
+
+test('habitation is an area level under the village panchayat', async () => {
+  const a = admin();
+  const b = writeBatch(a.db);
+  b.set(doc(a.db, 'areas/h1'), { name: 'Habitation 1', level: 'habitation', parentId: 'p1', path: ['d1', 'b1', 'p1', 'h1'], provisional: true, auditId: audit(b, a, 'areas/h1') });
+  await assertSucceeds(b.commit());
+});
+
+test('staff with a monitoring role mark their own attendance in their own area', async () => {
+  await seed('roleAssignments/sup1__supervisor', { uid: 'sup1', role: 'supervisor', areaIds: ['b1'], active: true, source: 'admin', grantedBy: 'adm', designation: 'mnp' });
+  await seed('accounts/sup1', { email: 'sup1@x.in', status: 'active', displayName: 'Sup One' });
+  const s1 = as('sup1', 'sup1@x.in').db;
+  const mine = (extra = {}) => ({ ...session('w1'), uid: 'sup1', workerName: 'Sup One', orgId: null, role: 'supervisor', designation: 'mnp', ...extra });
+  await assertFails(setDoc(doc(s1, `attendanceSessions/sup1_${istToday()}`), mine({ designation: 'vp_secretary' })));  // not their designation
+  await assertFails(setDoc(doc(s1, `attendanceSessions/sup1_${istToday()}`), mine({ role: 'officer' })));               // a role they do not hold
+  await assertSucceeds(setDoc(doc(s1, `attendanceSessions/sup1_${istToday()}`), mine()));
+  await assertSucceeds(getDoc(doc(as('col', 'col@x.in').db, `attendanceSessions/sup1_${istToday()}`)));
+});
+
+const punch = (uid, extra = {}) => ({
+  uid, workerName: workerNames[uid] ?? '', role: 'worker', designation: 'thoomai_kavalar', date: istToday(), orgId: 'orgA',
+  areaPath: ['d1', 'b1'], slot: '09:00', lat: 12.69, lng: 79.97, accuracy: 9, mocked: false, placement: 'inside', geofenceId: 'g1',
+  status: 'verified', reasons: [], note: null, capturedAt: Timestamp.now(), createdAt: serverTimestamp(), synthetic: false, ...extra,
+});
+async function takePhoto(who, id, data, withPhoto = true) {
+  const b = writeBatch(who);
+  if (withPhoto) b.set(doc(who, `photoAttendancePhotos/${id}`), { uid: data.uid, jpeg: jpeg(), sizeBytes: 2000, createdAt: serverTimestamp() });
+  b.set(doc(who, `photoAttendance/${id}`), data);
+  return b.commit();
+}
+
+test('GPS photo attendance: own designation, photo required, seen by area officers', async () => {
+  await seed('roleAssignments/w1__worker', { uid: 'w1', role: 'worker', areaIds: ['b1'], orgId: 'orgA', active: true, source: 'admin', grantedBy: 'adm', designation: 'thoomai_kavalar' });
+  const w1 = as('w1', 'w1@x.in').db;
+  await assertFails(takePhoto(w1, 'p0', punch('w1'), false));                                      // no photo
+  await assertFails(takePhoto(w1, 'p1', punch('w1', { designation: 'vp_secretary' })));            // not their designation
+  await assertFails(takePhoto(w1, 'p2', punch('w1', { workerName: 'Someone' })));                   // fake name
+  await assertFails(takePhoto(w1, 'p3', punch('w1', { reasons: ['outside_area'] })));               // "verified" with a reason
+  await assertFails(takePhoto(w1, 'p4', punch('w1', { geofenceId: 'g2', areaPath: ['d1', 'b2'] }))); // not their area
+  await assertSucceeds(takePhoto(w1, 'p5', punch('w1')));
+  await assertSucceeds(takePhoto(w1, 'p6', punch('w1', { geofenceId: null, placement: 'none', status: 'flagged', reasons: ['no_geofence'], areaPath: ['d1', 'b1'] })));
+  await assertFails(takePhoto(w1, 'p7', punch('w1', { geofenceId: null, placement: 'none', status: 'flagged', reasons: ['no_geofence'], areaPath: [] })));  // must keep the home area
+  await assertFails(updateDoc(doc(w1, 'photoAttendance/p5'), { status: 'verified' }));
+  const sup1 = as('sup1', 'sup1@x.in').db;
+  await assertSucceeds(getDocs(query(collection(sup1, 'photoAttendance'), where('areaPath', 'array-contains', 'b1'), where('date', '==', istToday()))));
+  await assertSucceeds(getDoc(doc(sup1, 'photoAttendancePhotos/p5')));
+  await assertFails(getDoc(doc(as('sup2', 'sup2@x.in').db, 'photoAttendancePhotos/p5')));
+  await assertFails(getDoc(doc(as('w2', 'w2@x.in').db, 'photoAttendance/p5')));
+});
+
+test('messages: the district admin sends, every active account reads', async () => {
+  const msg = (uid, extra = {}) => ({ title: 'Meeting', body: 'Block review at 4 pm', priority: 'normal', designations: [], roles: [],
+    createdBy: uid, createdByName: 'Admin', createdAt: serverTimestamp(), ...extra });
+  await assertSucceeds(setDoc(doc(admin().db, 'messages/m1'), msg('adm')));
+  await assertFails(setDoc(doc(as('col', 'col@x.in').db, 'messages/m2'), msg('col')));
+  await assertFails(setDoc(doc(as('w1', 'w1@x.in').db, 'messages/m3'), msg('w1')));
+  await assertSucceeds(getDoc(doc(as('w1', 'w1@x.in').db, 'messages/m1')));
+  await assertFails(getDoc(doc(as('dis', 'dis@x.in').db, 'messages/m1')));                       // disabled account
+  await assertFails(updateDoc(doc(admin().db, 'messages/m1'), { body: 'changed' }));
 });

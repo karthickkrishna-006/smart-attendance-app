@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
 import '../domain/area.dart';
+import '../domain/designations.dart';
 import '../domain/policy.dart';
 import '../domain/roles.dart';
 import '../domain/session.dart';
@@ -87,6 +88,20 @@ class SessionController extends ChangeNotifier {
   }
 
   String titleOf(Role r) => titles[r.key] ?? r.defaultTitle;
+
+  /// The job title of the current role (Thoomai Kavalar, BDO, ...), if set.
+  Designation? get designation => Designation.fromKey(current?.designation);
+
+  /// The title to show: the designation when set, otherwise the role title.
+  String get displayTitle => designation?.title ?? (role == null ? '' : titleOf(role!));
+
+  /// Path of the current role's first area: records made outside every
+  /// boundary belong here, so the person's superiors still see them.
+  List<String> get homePath {
+    final ids = current?.areaIds ?? const <String>[];
+    if (ids.isEmpty) return const [];
+    return areaPaths[ids.first] ?? [ids.first];
+  }
 
   /// "District › Block › Panchayat" for each area of the current role.
   List<String> get scopeLabels {

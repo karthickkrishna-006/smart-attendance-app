@@ -3,7 +3,17 @@
 Prepare once, as the System administrator:
 
 1. **Setup → Demo → Create demo data.** Expect a green message listing what was created.
-2. **Employees → Add a person** for each test account (one Gmail per role): Field worker, Supervisor, Zonal Secretary, AD (`officer`), District Collector, Organisation admin (pick an organisation), Auditor.
+2. **Employees → Add a person** for each test account (one Gmail each). Choose the **Staff type** first (it presets the role), for example:
+   - Thoomai Kavalar
+   - OHT Operator
+   - MNP
+   - Village Panchayat Secretary
+   - Zonal Deputy BDO
+   - Deputy BDO (Panchayats)
+   - BDO (Village Panchayats)
+   - District monitoring
+
+   Optionally also an Organisation admin and an Auditor.
 3. **Setup → Access:** for the Supervisor, Zonal Secretary and AD roles, tick **Demo Block (synthetic)** (and any real area). For the Field worker, tick **Demo Street 1**.
 4. **Setup → Settings:** optionally allow Supervisors to create tasks.
 
@@ -18,3 +28,15 @@ Prepare once, as the System administrator:
 | **System administrator** | Setup and Audit log only; no attendance or locations of real workers. |
 
 What to expect if an AD, Zonal Secretary or Supervisor screen is empty: a yellow notice explains that **no area is assigned to the role**. Fix it in **Setup → Access**.
+
+
+## Staff photo attendance (new)
+
+- **Thoomai Kavalar:** the Attendance tab shows **09:00 and 13:00**. Take a GPS photo now; the nearest time turns **Done** if within 60 minutes, and a time 60 minutes past turns **Missed**.
+- **OHT Operator:** the screen asks for a photo **when the water is opened**.
+- **MNP / VP Secretary / Zonal Dy.BDO / BDO:** the menu has **My attendance** (own photos) and **Attendance → GPS photos** (staff compliance, filters for village or block staff).
+- **District admin:**
+  - **Setup → Messages:** send to all, or to chosen staff types. Then check it appears under **Messages** for those staff only.
+  - **Setup → Areas:** add a **habitation** under a village panchayat.
+  - **Setup → Boundaries → Draw on map:** tap the corners, then Save.
+  - **Setup → Access:** tap a role to change areas and **staff type**.

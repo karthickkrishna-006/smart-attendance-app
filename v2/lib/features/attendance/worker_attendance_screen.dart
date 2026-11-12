@@ -69,6 +69,9 @@ class _WorkerAttendanceScreenState extends State<WorkerAttendanceScreen> {
         preview,
         orgId: widget.session.current?.orgId,
         workerName: (widget.session.account?['displayName'] as String?) ?? '',
+        role: widget.session.role?.key ?? 'worker',
+        designation: widget.session.current?.designation,
+        homePath: widget.session.homePath,
       );
       showToast(outcome == SaveOutcome.saved ? s.t('savedOk') : s.t('savedOffline'),
           kind: outcome == SaveOutcome.saved ? ToastKind.success : ToastKind.info);

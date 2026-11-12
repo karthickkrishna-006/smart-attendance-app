@@ -5,6 +5,7 @@ Android app (Flutter) with a Firebase backend for field workers and the officers
 - **Setup:** see [docs/SETUP.md](docs/SETUP.md)
 - **Role-by-role test checklist:** see [docs/TESTING.md](docs/TESTING.md)
 - **What is not done or not verified:** see [docs/KNOWN-LIMITATIONS.md](docs/KNOWN-LIMITATIONS.md)
+- **Village panchayat and block staff, GPS photo attendance:** see [docs/STAFF-AND-ROLES.md](docs/STAFF-AND-ROLES.md)
 
 The old app in the repository root is separate and unchanged. v2 has its own Android package `in.cit.smartattendance.v2` and its own Firebase project.
 
@@ -20,6 +21,12 @@ The old app in the repository root is separate and unchanged. v2 has its own And
 | Organisation admin | Overview, Attendance, Employees (adds own workers), Field activities, Reports, Alerts (own organisation; no live location) |
 | Auditor | Overview, Attendance, Field activities, Coverage, Reports, Alerts, Audit log (no live location) |
 | System administrator | Employees, Setup (areas, boundaries, organisations, access, settings, demo data), Audit log (no operational data) |
+
+## Staff types
+
+Thoomai Kavalar, OHT Operator, MNP, Village Panchayat Secretary, Zonal Deputy BDO, Deputy BDO (Panchayats), Deputy BDO (Regular), BDO (Village Panchayats), BDO (Block Panchayat) and District monitoring.
+
+Each has its own daily **GPS photo attendance** schedule; monitors see **compliance** (photos taken against required, missed times). The district admin assigns staff to **habitations**, sends **messages**, and draws **boundaries** on the map. Details: [docs/STAFF-AND-ROLES.md](docs/STAFF-AND-ROLES.md).
 
 ## Main flows
 

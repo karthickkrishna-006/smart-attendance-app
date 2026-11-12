@@ -21,6 +21,10 @@ enum Section {
   alerts,
   setup,
   auditLog,
+  // Added by the officer shell: own GPS photo attendance (staff with a
+  // designation) and messages from the district administration.
+  myAttendance,
+  messages,
   // Everyone
   profile,
 }

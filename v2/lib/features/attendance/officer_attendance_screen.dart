@@ -9,6 +9,7 @@ import '../../data/scoped.dart';
 import '../../data/session_controller.dart';
 import '../../domain/attendance.dart';
 import '../../domain/attendance_summary.dart';
+import '../staff/staff_screens.dart';
 
 String _time(Object? t) {
   if (t is! Timestamp) return '…';
@@ -142,7 +143,15 @@ class _OfficerAttendanceScreenState extends State<OfficerAttendanceScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => DefaultTabController(
+        length: 2,
+        child: Column(children: [
+          const TabBar(tabs: [Tab(text: 'Daily attendance'), Tab(text: 'GPS photos')]),
+          Expanded(child: TabBarView(children: [_daily(context), PhotoComplianceView(session: widget.session)])),
+        ]),
+      );
+
+  Widget _daily(BuildContext context) {
     final s = Strings.of(context);
     return StreamBuilder<List<Map<String, dynamic>>>(
       stream: _stream,

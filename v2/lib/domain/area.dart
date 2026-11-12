@@ -1,10 +1,12 @@
-/// Levels of the area tree (Phase 1, section 2). What each level is called is
-/// configurable; the order is fixed.
+/// Levels of the area tree: district, block, zone (a group of village
+/// panchayats under a Zonal Deputy BDO), village panchayat, habitation (the
+/// unit staff are assigned to) and location (a street or site).
 enum AreaLevel {
   district('district'),
   block('block'),
   zone('zone'),
   panchayat('panchayat'),
+  habitation('habitation'),
   location('location');
 
   const AreaLevel(this.key);

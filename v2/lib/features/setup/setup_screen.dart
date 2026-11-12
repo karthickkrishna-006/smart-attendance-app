@@ -6,7 +6,9 @@ import '../../data/directory.dart';
 import '../../data/session_controller.dart';
 import '../../domain/area.dart';
 import '../../domain/roles.dart';
+import '../../domain/designations.dart';
 import 'demo_tab.dart';
+import 'district_admin.dart';
 import 'geofences_tab.dart';
 import 'scope_picker.dart';
 
@@ -21,7 +23,7 @@ class SetupScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final dir = Directory(session.user!);
     return DefaultTabController(
-      length: 6,
+      length: 7,
       child: Column(children: [
         const TabBar(isScrollable: true, tabs: [
           Tab(text: 'Areas'),
@@ -29,6 +31,7 @@ class SetupScreen extends StatelessWidget {
           Tab(text: 'Organisations'),
           Tab(text: 'Access'),
           Tab(text: 'Settings'),
+          Tab(text: 'Messages'),
           Tab(text: 'Demo'),
         ]),
         Expanded(
@@ -38,6 +41,7 @@ class SetupScreen extends StatelessWidget {
             _OrganisationsTab(dir: dir),
             _AccessTab(dir: dir),
             _SettingsTab(dir: dir),
+            MessagesAdminTab(session: session),
             DemoTab(session: session),
           ]),
         ),
@@ -68,8 +72,9 @@ class _AreasTab extends StatelessWidget {
     final ok = await showDialog<bool>(
       context: context,
       builder: (c) => StatefulBuilder(builder: (c, set) {
-        final parentLevel = AreaLevel.values.where((l) => l.childLevel == level).firstOrNull;
-        final parents = parentLevel == null ? <AreaNode>[] : all.where((a) => a.level == parentLevel).toList();
+        // Any higher level can be the parent: a habitation under a village
+        // panchayat, a panchayat under a zone or directly under a block.
+        final parents = level == AreaLevel.district ? <AreaNode>[] : all.where((a) => a.level.index < level.index).toList();
         if (parent != null && !parents.contains(parent)) parent = null;
         return AlertDialog(
           title: const Text('Add area'),
@@ -81,12 +86,12 @@ class _AreasTab extends StatelessWidget {
               onChanged: (v) => set(() => level = v ?? level),
             ),
             const SizedBox(height: 12),
-            if (parentLevel != null)
+            if (level != AreaLevel.district)
               DropdownButtonFormField<AreaNode>(
                 value: parent,
                 isExpanded: true,
-                decoration: InputDecoration(labelText: 'Inside which ${parentLevel.key}?'),
-                items: [for (final p in parents) DropdownMenuItem(value: p, child: Text(p.name))],
+                decoration: const InputDecoration(labelText: 'Inside which area?'),
+                items: [for (final p in parents) DropdownMenuItem(value: p, child: Text('${p.name} (${p.level.key})'))],
                 onChanged: (v) => set(() => parent = v),
               ),
             const SizedBox(height: 12),
@@ -257,7 +262,15 @@ class _AccessTab extends StatelessWidget {
       orgId: a['orgId'] as String?,
     );
     if (picked == null) return;
-    await runWrite(() => dir.updateRoleScope(a['id'] as String, areaIds: picked.areaIds, orgId: picked.orgId), done: 'Role updated.');
+    if (!context.mounted) return;
+    final designation = await pickDesignation(context,
+        current: Designation.fromKey(a['designation'] as String?), forRole: Role.fromKey(a['role'] as String?));
+    final keep = a['designation'] as String?;
+    await runWrite(
+      () => dir.updateRoleScope(a['id'] as String,
+          areaIds: picked.areaIds, orgId: picked.orgId, designation: designation.ok ? designation.value?.key : keep),
+      done: 'Role updated.',
+    );
   }
 
   @override
@@ -277,7 +290,7 @@ class _AccessTab extends StatelessWidget {
                   ListTile(
                     title: Text(names[a['uid']] ?? '${a['uid']}'),
                     subtitle: Text(
-                      '${Role.fromKey(a['role'] as String?)?.defaultTitle ?? a['role']} · '
+                      '${Designation.fromKey(a['designation'] as String?)?.title ?? Role.fromKey(a['role'] as String?)?.defaultTitle ?? a['role']} · '
                       '${((a['areaIds'] as List?) ?? const []).length} area(s) · tap to edit',
                     ),
                     onTap: () => _editScope(context, a),

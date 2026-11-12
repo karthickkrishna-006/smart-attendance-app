@@ -9,6 +9,7 @@ import '../../data/duty_service.dart';
 import '../../data/location.dart';
 import '../../data/work_repository.dart';
 import '../attendance/worker_attendance_screen.dart';
+import '../staff/staff_screens.dart';
 import '../work/worker_work_screens.dart';
 import '../profile/profile_screen.dart';
 
@@ -29,7 +30,9 @@ class _WorkerShellState extends State<WorkerShell> {
     final s = Strings.of(context);
     final pages = <Widget>[
       _WorkerHome(session: widget.session, onOpenTab: (i) => setState(() => _tab = i)),
-      WorkerAttendanceScreen(session: widget.session),
+      (widget.session.designation?.schedule.required ?? false)
+          ? PhotoAttendanceScreen(session: widget.session)
+          : WorkerAttendanceScreen(session: widget.session),
       WorkerActivityScreen(session: widget.session),
       WorkerTasksScreen(session: widget.session),
       ProfileScreen(session: widget.session),
@@ -83,8 +86,19 @@ class _WorkerHomeState extends State<_WorkerHome> {
     final first = (name == null || name.isEmpty) ? (session.user?.email ?? '') : name.split(RegExp(r'\s+')).first;
     return ListView(padding: const EdgeInsets.fromLTRB(20, 24, 20, 32), children: [
       Text(s.t('hello', {'name': first}), style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: AppColors.ink)),
+      if (session.designation != null)
+        Text(s.t('d_${session.designation!.key}'), style: const TextStyle(color: AppColors.muted, fontSize: 16)),
       const SizedBox(height: 12),
       Align(alignment: Alignment.centerLeft, child: ScopeChip(labels: session.scopeLabels, emptyText: s.t('notAssigned'))),
+      const SizedBox(height: 12),
+      Card(
+        child: ListTile(
+          leading: const Icon(Icons.mail_outline, color: AppColors.indigo),
+          title: Text(s.t('messages'), style: const TextStyle(fontWeight: FontWeight.w600)),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => MessagesScreen(session: session, standalone: true))),
+        ),
+      ),
       if (session.orgName != null) ...[
         const SizedBox(height: 8),
         Text('${s.t('organisation')}: ${session.orgName}', style: const TextStyle(color: AppColors.muted, fontSize: 15)),

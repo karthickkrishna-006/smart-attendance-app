@@ -6,6 +6,7 @@ import '../../data/directory.dart';
 import '../../data/location.dart';
 import '../../domain/area.dart';
 import '../../domain/geo.dart';
+import 'district_admin.dart';
 import 'setup_screen.dart' show runWrite;
 
 /// Work-area boundaries: circles drawn here, or official boundaries imported
@@ -162,6 +163,17 @@ class GeofencesTab extends StatelessWidget {
               floatingActionButton: areas.isEmpty
                   ? null
                   : Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [
+                      FloatingActionButton.extended(
+                        heroTag: 'draw',
+                        onPressed: () async {
+                          final area = await _pickArea(context, areas);
+                          if (area == null || !context.mounted) return;
+                          await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => BoundaryDrawPage(dir: dir, area: area)));
+                        },
+                        icon: const Icon(Icons.draw_outlined),
+                        label: const Text('Draw on map'),
+                      ),
+                      const SizedBox(height: 10),
                       FloatingActionButton.extended(
                         heroTag: 'import',
                         onPressed: () => _import(context, areas),

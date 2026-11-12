@@ -42,6 +42,12 @@ class ProfileScreen extends StatelessWidget {
             title: Text(s.t('role')),
             subtitle: Text(session.activeRoles.map(session.titleOf).join(', ')),
           ),
+          if (session.designation != null)
+            ListTile(
+              leading: const Icon(Icons.work_outline),
+              title: Text(s.t('staffType')),
+              subtitle: Text(s.t('d_${session.designation!.key}')),
+            ),
           if (session.activeRoles.length > 1)
             ListTile(
               leading: const Icon(Icons.swap_horiz),

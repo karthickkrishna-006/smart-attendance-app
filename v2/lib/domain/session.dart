@@ -9,6 +9,7 @@ class RoleAssignment {
     required this.areaIds,
     this.orgId,
     this.active = true,
+    this.designation,
   });
 
   final String uid;
@@ -16,6 +17,9 @@ class RoleAssignment {
   final List<String> areaIds;
   final String? orgId;
   final bool active;
+
+  /// Job title key (see designations.dart), or null.
+  final String? designation;
 
   static String docId(String uid, Role role) => '${uid}__${role.key}';
 
@@ -29,6 +33,7 @@ class RoleAssignment {
       areaIds: ((m['areaIds'] as List?) ?? const []).whereType<String>().toList(),
       orgId: m['orgId'] as String?,
       active: m['active'] == true,
+      designation: m['designation'] as String?,
     );
   }
 }
@@ -46,7 +51,11 @@ class Preregistration {
     this.orgId,
     this.claimedBy,
     this.createdBy,
+    this.designation,
   });
+
+  /// Job title key prepared by the administrator, copied to the role on claim.
+  final String? designation;
 
   final String email;
   final Role role;
@@ -74,6 +83,7 @@ class Preregistration {
       orgId: m['orgId'] as String?,
       claimedBy: m['claimedBy'] as String?,
       createdBy: m['createdBy'] as String?,
+      designation: m['designation'] as String?,
     );
   }
 }

@@ -14,7 +14,17 @@ class DemoData {
   final User user;
   final FirebaseFirestore db;
 
-  static const _collections = ['attendanceSessions', 'tasks', 'activities', 'presence', 'routes', 'visits'];
+  static const _collections = ['attendanceSessions', 'tasks', 'activities', 'presence', 'routes', 'visits', 'photoAttendance'];
+  static const _designations = ['thoomai_kavalar', 'thoomai_kavalar', 'oht_operator', 'mnp', 'vp_secretary', 'dy_bdo_panchayats'];
+  // Photo times (hour, minute) per demo worker: some complete, some missing.
+  static const _photoTimes = [
+    [(9, 5), (13, 10)],
+    [(9, 20)],
+    [(6, 30)],
+    [(8, 40), (12, 15), (16, 5)],
+    [(10, 2), (13, 5)],
+    [(10, 15), (18, 3)],
+  ];
 
   Future<String> generate({double lat = 12.6919, double lng = 79.9762}) async {
     // 1. Demo areas under the first district (or a demo district).
@@ -93,7 +103,7 @@ class DemoData {
       final uid = 'demo-w${i + 1}';
       final path = streets.elementAt(p.$2);
       w.set(db.doc('attendanceSessions/${uid}_$day'), {
-        'uid': uid, 'workerName': p.$1, 'date': day, 'orgId': null, 'areaPath': path, 'evaluatedBy': 'device',
+        'uid': uid, 'workerName': p.$1, 'designation': _designations.elementAt(i), 'date': day, 'orgId': null, 'areaPath': path, 'evaluatedBy': 'device',
         'createdAt': at(8, 50 + i), 'synthetic': true,
         'checkIn': {
           'at': at(p.$5 ? 9 : 8, p.$5 ? 40 : 50 + i), 'deviceAt': at(8, 50 + i),
@@ -103,6 +113,22 @@ class DemoData {
         },
         if (p.$6) 'checkOut': {'at': at(13, 10 + i), 'deviceAt': at(13, 10 + i), 'lat': lat, 'lng': lng, 'accuracy': 10.0, 'mocked': false, 'eventId': 'demo-out-$i'},
       });
+    }
+    for (var i = 0; i < people.length; i++) {
+      final p = people.elementAt(i);
+      var k = 0;
+      for (final (h, m) in _photoTimes.elementAt(i)) {
+        final when = DateTime(now.year, now.month, now.day, h, m);
+        if (when.isAfter(now)) continue;
+        w.set(db.doc('photoAttendance/demo-photo-${i + 1}-${k++}'), {
+          'uid': 'demo-w${i + 1}', 'workerName': p.$1, 'role': 'worker', 'designation': _designations.elementAt(i),
+          'date': day, 'orgId': null, 'areaPath': streets.elementAt(p.$2), 'slot': null,
+          'lat': lat + p.$2 * 0.004, 'lng': lng + p.$2 * 0.004, 'accuracy': 9.0, 'mocked': false,
+          'placement': p.$4.contains('outside_area') ? 'outside' : 'inside', 'geofenceId': 'demo-fence-${p.$2 + 1}',
+          'status': p.$3, 'reasons': p.$4, 'note': null,
+          'capturedAt': Timestamp.fromDate(when), 'createdAt': Timestamp.fromDate(when), 'synthetic': true,
+        });
+      }
     }
     final tasks = [
       ('Clean Demo Street 1 drains', 0, 'assigned', 'high', 0),

@@ -14,6 +14,7 @@ import '../attendance/officer_attendance_screen.dart';
 import '../../data/scoped.dart';
 import '../audit/audit_log_screen.dart';
 import '../monitor/monitor_screens.dart';
+import '../staff/staff_screens.dart';
 import '../work/officer_work_screens.dart';
 import '../profile/profile_screen.dart';
 import '../setup/people_screen.dart';
@@ -44,6 +45,8 @@ class _OfficerShellState extends State<OfficerShell> {
     Section.alerts: Icons.notifications_outlined,
     Section.setup: Icons.tune,
     Section.auditLog: Icons.policy_outlined,
+    Section.myAttendance: Icons.add_a_photo_outlined,
+    Section.messages: Icons.mail_outline,
     Section.profile: Icons.person_outline,
   };
 
@@ -59,6 +62,8 @@ class _OfficerShellState extends State<OfficerShell> {
         Section.alerts => 'alerts',
         Section.setup => 'setup',
         Section.auditLog => 'auditLog',
+        Section.myAttendance => 'myAttendance',
+        Section.messages => 'messages',
         Section.profile => 'profile',
         _ => 'home',
       };
@@ -85,6 +90,10 @@ class _OfficerShellState extends State<OfficerShell> {
         return OfficerTasksScreen(key: ValueKey(role), session: session);
       case Section.alerts:
         return AlertsScreen(key: ValueKey(role), session: session);
+      case Section.myAttendance:
+        return PhotoAttendanceScreen(key: ValueKey(role), session: session);
+      case Section.messages:
+        return MessagesScreen(key: ValueKey(role), session: session);
       case Section.liveMonitoring:
         return LiveMonitoringScreen(key: ValueKey(role), session: session);
       case Section.coverage:
@@ -107,7 +116,15 @@ class _OfficerShellState extends State<OfficerShell> {
     final s = Strings.of(context);
     final session = widget.session;
     final role = session.role!;
-    final sections = sectionsFor(role, session.policy);
+    final base = sectionsFor(role, session.policy);
+    final takesPhotos = session.designation?.schedule.required ?? false;
+    final sections = <Section>[
+      for (final sec in base) ...[
+        if (sec == Section.profile) Section.messages,
+        sec,
+        if (sec == base.first && takesPhotos) Section.myAttendance,
+      ],
+    ];
     final section = sections.contains(_section) ? _section! : sections.first;
     final selected = sections.indexOf(section);
 
@@ -190,7 +207,7 @@ class _Header extends StatelessWidget {
             },
           )
         else
-          Text(session.titleOf(role), style: const TextStyle(color: Colors.white70, fontSize: 15)),
+          Text(session.displayTitle, style: const TextStyle(color: Colors.white70, fontSize: 15)),
         const SizedBox(height: 10),
         ScopeChip(labels: session.scopeLabels, emptyText: s.t('notAssigned'), dark: true),
       ]),

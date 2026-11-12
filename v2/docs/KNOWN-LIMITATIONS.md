@@ -23,3 +23,12 @@
   - push notifications.
 - Demo data: areas and boundaries named "Demo …" stay after **Remove demo records** (areas can never be deleted, by design); the attendance, tasks, reports, positions, routes and visits are removed.
 - Tamil text needs review by a native speaker. Administrator and officer detail screens are partly English.
+
+## Staff and photo attendance
+
+- **Messages** are an in-app inbox. There are no push notifications: they would need a server, which the free plan does not provide.
+- **BDO (Village Panchayats) and BDO (Block Panchayat) see the same block.** The separation is a filter (village panchayat staff or block staff) in the photo compliance view, not a security boundary.
+- **The tests for these features have not run yet:**
+  - the photo-time logic is tested here (54 logic tests);
+  - the new rules (designations, habitations, staff self-attendance, photo attendance, messages) have 31 emulator tests that run in CI after upload.
+- **Zonal Dy.BDO:** assign the **zone** area (one area covering their panchayats) or up to 15 panchayats individually.
