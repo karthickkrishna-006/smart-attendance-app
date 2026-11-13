@@ -2,8 +2,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' show User;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
 
 import '../../app/theme.dart';
 import '../../app/ui.dart';
@@ -13,6 +11,7 @@ import '../../data/street_zones_repo.dart';
 import '../../domain/attendance.dart';
 import '../../domain/geo.dart';
 import '../../domain/street_zones.dart';
+import 'live_map_view.dart';
 
 String _hm(Object? t) {
   if (t is! Timestamp) return '–';
@@ -184,15 +183,17 @@ class _CleaningZonesPageState extends State<CleaningZonesPage> {
   late final _stream = repo.watchStreet(widget.street.id);
   bool _saving = false;
 
-  LatLng get _centre => widget.street.kind == GeofenceKind.circle
-      ? LatLng(widget.street.center!.lat, widget.street.center!.lng)
-      : LatLng(
+  final _map = LiveMapController();
+
+  GeoPoint2 get _centre => widget.street.kind == GeofenceKind.circle
+      ? widget.street.center!
+      : GeoPoint2(
           widget.street.ring.map((p) => p.lat).reduce((a, b) => a + b) / widget.street.ring.length,
           widget.street.ring.map((p) => p.lng).reduce((a, b) => a + b) / widget.street.ring.length,
         );
 
-  Future<void> _add(LatLng p, int count) async {
-    final inside = widget.street.check(GeoPoint2(p.latitude, p.longitude), 0).placement != Placement.outside;
+  Future<void> _add(GeoPoint2 p, int count) async {
+    final inside = widget.street.check(p, 0).placement != Placement.outside;
     if (!inside) {
       showToast('Tap inside the street boundary (green).', kind: ToastKind.error);
       return;
@@ -204,7 +205,7 @@ class _CleaningZonesPageState extends State<CleaningZonesPage> {
         streetFenceId: widget.street.id,
         areaPath: widget.street.areaPath,
         name: '${widget.street.name.replaceAll(' boundary', '')} Zone ${count + 1}',
-        at: GeoPoint2(p.latitude, p.longitude),
+        at: p,
         order: count,
       );
     } catch (e) {
@@ -229,58 +230,24 @@ class _CleaningZonesPageState extends State<CleaningZonesPage> {
               ),
               SizedBox(
                 height: 360,
-                child: FlutterMap(
-                  options: MapOptions(
-                    initialCenter: _centre,
-                    initialZoom: 17,
-                    onTap: (_, p) => _saving ? null : _add(p, zones.length),
-                  ),
-                  children: [
-                    TileLayer(urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', userAgentPackageName: 'in.cit.smartattendance.v2'),
-                    if (widget.street.kind == GeofenceKind.circle)
-                      CircleLayer(circles: [
-                        CircleMarker(
-                          point: _centre,
-                          radius: widget.street.radiusM!,
-                          useRadiusInMeter: true,
-                          color: AppColors.green.withValues(alpha: 0.10),
-                          borderColor: AppColors.green,
-                          borderStrokeWidth: 2,
-                        ),
-                      ])
-                    else
-                      PolygonLayer(polygons: [
-                        Polygon(
-                          points: [for (final p in widget.street.ring) LatLng(p.lat, p.lng)],
-                          color: AppColors.green.withValues(alpha: 0.10),
-                          borderColor: AppColors.green,
-                          borderStrokeWidth: 2,
-                        ),
-                      ]),
-                    CircleLayer(circles: [
-                      for (final z in zones)
-                        CircleMarker(
-                          point: LatLng(z.center.lat, z.center.lng),
-                          radius: z.radiusM,
-                          useRadiusInMeter: true,
-                          color: AppColors.indigo.withValues(alpha: 0.18),
-                          borderColor: AppColors.indigo,
-                          borderStrokeWidth: 1.5,
-                        ),
-                    ]),
-                    MarkerLayer(markers: [
-                      for (final z in zones)
-                        Marker(
-                          point: LatLng(z.center.lat, z.center.lng),
-                          width: 28,
-                          height: 28,
-                          child: CircleAvatar(
-                            radius: 12,
-                            backgroundColor: AppColors.indigo,
-                            child: Text('${z.order + 1}', style: const TextStyle(color: Colors.white, fontSize: 12)),
-                          ),
-                        ),
-                    ]),
+                child: LiveMapView(
+                  center: _centre,
+                  zoom: 17,
+                  controller: _map,
+                  onMapTap: (p) => _saving ? null : _add(p, zones.length),
+                  areas: [
+                    MapArea(
+                      id: widget.street.id,
+                      ring: widget.street.ring,
+                      center: widget.street.center,
+                      radiusM: widget.street.radiusM,
+                      stroke: AppColors.green,
+                      fill: AppColors.green.withValues(alpha: 0.10),
+                    ),
+                  ],
+                  dots: [
+                    for (final z in zones)
+                      MapDot(id: z.id, at: z.center, radiusM: z.radiusM, fill: AppColors.indigo.withValues(alpha: 0.25), stroke: AppColors.indigo),
                   ],
                 ),
               ),

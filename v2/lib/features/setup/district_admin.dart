@@ -1,7 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
 
 import '../../app/theme.dart';
 import '../../app/ui.dart';
@@ -12,6 +10,7 @@ import '../../domain/area.dart';
 import '../../domain/designations.dart';
 import '../../domain/geo.dart';
 import '../../domain/roles.dart';
+import '../monitor/live_map_view.dart';
 import '../work/worker_work_screens.dart' show shortDateTime;
 
 /// Pick a staff type (designation); null = none. Returns false when cancelled.
@@ -147,14 +146,14 @@ class BoundaryDrawPage extends StatefulWidget {
 }
 
 class _BoundaryDrawPageState extends State<BoundaryDrawPage> {
-  final _map = MapController();
-  final _points = <LatLng>[];
+  final _map = LiveMapController();
+  final _points = <GeoPoint2>[];
   bool _saving = false;
 
   Future<void> _centreOnMe() async {
     try {
       final p = await Location.current();
-      _map.move(LatLng(p.latitude, p.longitude), 17);
+      _map.moveTo(GeoPoint2(p.latitude, p.longitude), zoom: 17);
     } catch (e) {
       showToast('$e', kind: ToastKind.error);
     }
@@ -169,7 +168,7 @@ class _BoundaryDrawPageState extends State<BoundaryDrawPage> {
     try {
       await widget.dir.addPolygonGeofences(
         area: widget.area,
-        rings: [(name: '${widget.area.name} boundary', ring: [for (final p in _points) GeoPoint2(p.latitude, p.longitude)])],
+        rings: [(name: '${widget.area.name} boundary', ring: List.of(_points))],
         official: false,
       );
       showToast('Boundary saved for ${widget.area.name}.', kind: ToastKind.success);
@@ -191,24 +190,19 @@ class _BoundaryDrawPageState extends State<BoundaryDrawPage> {
                 style: TextStyle(color: AppColors.muted)),
           ),
           Expanded(
-            child: FlutterMap(
-              mapController: _map,
-              options: MapOptions(
-                initialCenter: const LatLng(12.6919, 79.9762),
-                initialZoom: 14,
-                onTap: (_, point) => setState(() => _points.add(point)),
-              ),
-              children: [
-                TileLayer(urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', userAgentPackageName: 'in.cit.smartattendance.v2'),
+            child: LiveMapView(
+              center: const GeoPoint2(12.6919, 79.9762),
+              zoom: 14,
+              controller: _map,
+              onMapTap: (p) => setState(() => _points.add(p)),
+              route: _points.length == 2 ? List.of(_points) : const [],
+              areas: [
                 if (_points.length >= 3)
-                  PolygonLayer(polygons: [
-                    Polygon(points: List.of(_points), color: AppColors.green.withValues(alpha: 0.18), borderColor: AppColors.green, borderStrokeWidth: 3),
-                  ]),
-                if (_points.length == 2) PolylineLayer(polylines: [Polyline(points: List.of(_points), strokeWidth: 3, color: AppColors.green)]),
-                MarkerLayer(markers: [
-                  for (final p in _points)
-                    Marker(point: p, width: 18, height: 18, child: const Icon(Icons.circle, size: 14, color: AppColors.indigo)),
-                ]),
+                  MapArea(id: 'draft', ring: List.of(_points), stroke: AppColors.green, fill: AppColors.green.withValues(alpha: 0.18)),
+              ],
+              dots: [
+                for (var k = 0; k < _points.length; k++)
+                  MapDot(id: 'c$k', at: _points[k], radiusM: 8, fill: AppColors.indigo, stroke: Colors.white),
               ],
             ),
           ),

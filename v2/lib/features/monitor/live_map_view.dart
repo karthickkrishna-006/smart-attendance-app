@@ -81,10 +81,12 @@ class LiveMapView extends StatelessWidget {
     required this.center,
     required this.areas,
     required this.dots,
-    required this.pins,
-    required this.route,
+    this.pins = const [],
+    this.route = const [],
     required this.controller,
-    required this.onPinTap,
+    this.onPinTap,
+    this.onMapTap,
+    this.zoom = 15,
   });
 
   final GeoPoint2 center;
@@ -93,7 +95,11 @@ class LiveMapView extends StatelessWidget {
   final List<MapPin> pins;
   final List<GeoPoint2> route;
   final LiveMapController controller;
-  final void Function(String id) onPinTap;
+  final void Function(String id)? onPinTap;
+
+  /// Tapping the map itself (drawing boundaries, placing cleaning zones).
+  final void Function(GeoPoint2 at)? onMapTap;
+  final double zoom;
 
   @override
   Widget build(BuildContext context) => kGoogleMaps ? _GoogleMap(view: this) : _OsmMap(view: this);
@@ -185,9 +191,10 @@ class _GoogleMapState extends State<_GoogleMap> {
     _ensureIcons();
     return Stack(children: [
       gm.GoogleMap(
-        initialCameraPosition: gm.CameraPosition(target: _ll(v.center), zoom: 15),
+        initialCameraPosition: gm.CameraPosition(target: _ll(v.center), zoom: v.zoom),
         mapType: _type,
         onMapCreated: (c) => _c = c,
+        onTap: v.onMapTap == null ? null : (p) => v.onMapTap!(GeoPoint2(p.latitude, p.longitude)),
         // Pan and zoom the map even inside a scrolling screen.
         gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
           Factory<OneSequenceGestureRecognizer>(() => EagerGestureRecognizer()),
@@ -221,7 +228,7 @@ class _GoogleMapState extends State<_GoogleMap> {
               anchor: const Offset(0.5, 1),
               zIndex: p.selected ? 2 : 1,
               infoWindow: gm.InfoWindow(title: p.title, snippet: p.snippet),
-              onTap: () => v.onPinTap(p.id),
+              onTap: () => v.onPinTap?.call(p.id),
             ),
         },
       ),
@@ -277,7 +284,11 @@ class _OsmMapState extends State<_OsmMap> {
     return Stack(children: [
       fm.FlutterMap(
         mapController: _c,
-        options: fm.MapOptions(initialCenter: _ll(v.center), initialZoom: 15),
+        options: fm.MapOptions(
+          initialCenter: _ll(v.center),
+          initialZoom: v.zoom,
+          onTap: v.onMapTap == null ? null : (_, p) => v.onMapTap!(GeoPoint2(p.latitude, p.longitude)),
+        ),
         children: [
           fm.TileLayer(urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', userAgentPackageName: 'in.cit.smartattendance.v2'),
           fm.PolygonLayer(polygons: [
@@ -303,7 +314,7 @@ class _OsmMapState extends State<_OsmMap> {
                 height: 74,
                 alignment: Alignment.topCenter,
                 child: GestureDetector(
-                  onTap: () => v.onPinTap(p.id),
+                  onTap: () => v.onPinTap?.call(p.id),
                   child: Column(mainAxisSize: MainAxisSize.min, children: [
                     Container(
                       width: p.selected ? 44 : 38,
