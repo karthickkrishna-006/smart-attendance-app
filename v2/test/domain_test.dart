@@ -51,12 +51,13 @@ void main() {
       expect(policy.scopeFor(Role.sysAdmin, Capability.auditLogs), Scope.district);
     });
 
-    test('third-party admins stay inside their organisation and see no live map', () {
+    test('third-party admins stay inside their organisation (live map: own workers only)', () {
       for (final c in Capability.values) {
         final s = policy.scopeFor(Role.orgAdmin, c);
         expect(s == Scope.none || s == Scope.org, true, reason: '$c');
       }
-      expect(policy.can(Role.orgAdmin, Capability.liveMap), false);
+      expect(policy.scopeFor(Role.orgAdmin, Capability.liveMap), Scope.org);
+      expect(policy.can(Role.auditor, Capability.liveMap), false);
     });
 
     test('only AD and Zonal Secretary create tasks by default; switches widen it', () {

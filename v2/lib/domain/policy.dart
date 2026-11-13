@@ -81,8 +81,8 @@ class Policy {
   static const Map<Capability, List<Scope>> _matrix = {
     //                                   collector       officer        zonal          supervisor      orgAdmin    worker       auditor        sysAdmin
     Capability.dashboard: [Scope.district, Scope.area, Scope.zone, Scope.assigned, Scope.org, Scope.self, Scope.history, _n],
-    Capability.liveMap: [Scope.district, Scope.area, Scope.zone, Scope.assigned, _n, Scope.self, _n, _n],
-    Capability.routeHistory: [Scope.district, Scope.area, Scope.zone, Scope.assigned, _n, Scope.self, _n, _n],
+    Capability.liveMap: [Scope.district, Scope.area, Scope.zone, Scope.assigned, Scope.org, Scope.self, _n, _n],
+    Capability.routeHistory: [Scope.district, Scope.area, Scope.zone, Scope.assigned, Scope.org, Scope.self, _n, _n],
     Capability.attendanceRecords: [Scope.district, Scope.area, Scope.zone, Scope.assigned, Scope.org, Scope.self, Scope.history, _n],
     Capability.requestAttendanceCorrection: [_n, _n, _n, Scope.assigned, _n, Scope.self, _n, _n],
     Capability.approveAttendanceCorrection: [_n, Scope.area, Scope.zone, _n, _n, _n, _n, _n],

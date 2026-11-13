@@ -521,7 +521,7 @@ const presence = (uid, extra = {}) => ({
   lat: 12.69, lng: 79.97, accuracy: 9, onDuty: true, designation: null, geofenceId: null, at: serverTimestamp(), synthetic: false, ...extra,
 });
 
-test('live location: own record only; seen by Collector and area officers, not org admins or auditors', async () => {
+test('live location: own record only; seen by Collector, area officers and own-organisation admins; never auditors', async () => {
   const w1 = as('w1', 'w1@x.in').db;
   await assertFails(setDoc(doc(w1, 'presence/w1'), presence('w1', { workerName: 'Fake' })));
   await assertFails(setDoc(doc(w1, 'presence/w1'), presence('w1', { areaPath: ['d1', 'b2'] })));      // not their home area
@@ -532,7 +532,10 @@ test('live location: own record only; seen by Collector and area officers, not o
   await assertSucceeds(getDocs(query(collection(as('sup1', 'sup1@x.in').db, 'presence'), where('areaPath', 'array-contains', 'b1'))));
   await assertFails(getDocs(query(collection(as('sup2', 'sup2@x.in').db, 'presence'), where('areaPath', 'array-contains', 'b1'))));
   await assertSucceeds(getDocs(collection(as('col', 'col@x.in').db, 'presence')));
-  await assertFails(getDoc(doc(as('oa', 'oa@firm-a.in').db, 'presence/w1')));
+  await assertSucceeds(getDoc(doc(as('oa', 'oa@firm-a.in').db, 'presence/w1')));       // w1 works for organisation A
+  await assertFails(getDoc(doc(as('oa', 'oa@firm-a.in').db, 'presence/w2')));          // w2 is organisation B
+  await assertSucceeds(getDocs(query(collection(as('oa', 'oa@firm-a.in').db, 'presence'), where('orgId', '==', 'orgA'))));
+  await assertFails(getDocs(query(collection(as('oa', 'oa@firm-a.in').db, 'presence'), where('orgId', '==', 'orgB'))));
   await assertFails(getDoc(doc(as('aud', 'aud@x.in').db, 'presence/w1')));
   await assertFails(getDoc(doc(admin().db, 'presence/w1')));
 });

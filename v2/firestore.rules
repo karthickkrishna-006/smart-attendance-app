@@ -610,14 +610,16 @@ service cloud.firestore {
     }
 
     // ---------------------------------------------------------- live tracking
-    // Live location and routes: Collector (district) and the AD, Zonal
-    // Secretary and Supervisor covering the worker's area. Not organisation
-    // admins or auditors (Phase 1: no live location for them).
+    // Live location and routes: Collector (district), the AD, Zonal Secretary
+    // and Supervisor covering the worker's area, and organisation admins for
+    // their own organisation's workers. Never auditors or the System
+    // administrator, never workers (except their own record).
     function liveSees(d) {
       return hasRole('collector')
         || coversPath('officer', d.areaPath)
         || coversPath('zonal_secretary', d.areaPath)
-        || coversPath('supervisor', d.areaPath);
+        || coversPath('supervisor', d.areaPath)
+        || (d.get('orgId', null) != null && isOrgAdminOf(d.orgId));
     }
     // The worker's home area path: their first assigned area, or [] if none.
     function homePathOk(path) {
