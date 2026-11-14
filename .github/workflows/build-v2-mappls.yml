@@ -1,0 +1,199 @@
+# Manual test build: the app with the Mappls map (Flutter 3.35, mappls_gl).
+# Runs only from Actions -> 'Build v2 with Mappls (test)' -> Run workflow.
+# The normal 'Build v2 (new app)' workflow is not changed by this file.
+name: Build v2 with Mappls (test)
+on:
+  workflow_dispatch: {}
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: v2
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+    - uses: subosito/flutter-action@v2
+      with:
+        flutter-version: 3.35.x
+        channel: stable
+        cache: true
+    - name: Add Mappls SDK and licence files (test build only)
+      env:
+        MAPPLS_OLF_B64: ${{ secrets.MAPPLS_OLF_B64 }}
+        MAPPLS_CONF_B64: ${{ secrets.MAPPLS_CONF_B64 }}
+        MAPPLS_APP_ID: ${{ secrets.MAPPLS_APP_ID }}
+      run: |
+        set -euo pipefail
+        for v in MAPPLS_OLF_B64 MAPPLS_CONF_B64 MAPPLS_APP_ID; do
+          if [[ -z "${!v:-}" ]]; then echo "::error::GitHub secret $v is missing or empty."; exit 1; fi
+        done
+        if [[ ! "$MAPPLS_APP_ID" =~ ^[A-Za-z0-9_-]+$ ]]; then
+          echo "::error::MAPPLS_APP_ID has unexpected characters: use only the part of the file name before .a.olf."; exit 1
+        fi
+        umask 077
+        # The licence files go in the app module's root directory (Mappls docs).
+        printf '%s' "$MAPPLS_OLF_B64" | base64 --decode > "android/app/${MAPPLS_APP_ID}.a.olf"
+        printf '%s' "$MAPPLS_CONF_B64" | base64 --decode > "android/app/${MAPPLS_APP_ID}.a.conf"
+        for f in "android/app/${MAPPLS_APP_ID}.a.olf" "android/app/${MAPPLS_APP_ID}.a.conf"; do
+          if [[ ! -s "$f" ]]; then echo "::error::A Mappls licence file is empty after decoding: check MAPPLS_OLF_B64 / MAPPLS_CONF_B64."; exit 1; fi
+        done
+        echo "Mappls licence files written: $(stat -c%s "android/app/${MAPPLS_APP_ID}.a.olf") and $(stat -c%s "android/app/${MAPPLS_APP_ID}.a.conf") bytes (contents not printed)."
+        # Real Mappls engine instead of the placeholder, and the Mappls SDK.
+        cp mappls/mappls_engine.dart lib/features/monitor/mappls_engine.dart
+        flutter pub add mappls_gl:2.0.7
+        flutter --version
+    - name: Install dependencies
+      run: flutter pub get
+    - name: Analyze (Mappls build; errors fail, warnings reported)
+      run: |
+        set -o pipefail
+        flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee "$RUNNER_TEMP/analyze-mappls.txt"
+    - name: Check signing setup (test builds must never use production signing)
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Production signing material belongs only to build-apk.yml.
+        for f in android/key.properties android/app/release.jks; do
+          if [[ -e "$f" ]]; then
+            echo "::error::$f must not exist in the repository or in this workflow (production signing only)."
+            exit 1
+          fi
+        done
+        # An older build.gradle without CI debug signing support would silently
+        # sign with Android's default debug key.
+        for v in CI_DEBUG_KEYSTORE_PATH CI_DEBUG_KEYSTORE_PASSWORD CI_DEBUG_KEY_ALIAS CI_DEBUG_KEY_PASSWORD CI_REQUIRE_CI_DEBUG_SIGNING; do
+          if ! grep -q "$v" android/app/build.gradle; then
+            echo "::error::android/app/build.gradle does not read $v. Upload the current android/app/build.gradle."
+            exit 1
+          fi
+        done
+        # google-services.json must belong to this app's package; otherwise the
+        # Google Services Gradle plugin fails later with a less clear message.
+        APP_ID="$(sed -n 's/^ *applicationId = "\(.*\)"$/\1/p' android/app/build.gradle)"
+        if [[ "$APP_ID" != "in.cit.smartattendance.v2" ]]; then
+          echo "::error::android/app/build.gradle applicationId is '$APP_ID', expected in.cit.smartattendance.v2."
+          exit 1
+        fi
+        if ! jq -e --arg p "$APP_ID" '[.client[] | select(.client_info.android_client_info.package_name == $p)] | length > 0' android/app/google-services.json >/dev/null; then
+          echo "::error::android/app/google-services.json has no Android app for $APP_ID. In the Firebase console add an Android app with package $APP_ID (and both SHA-1 fingerprints), then download google-services.json again and replace v2/android/app/google-services.json."
+          exit 1
+        fi
+        echo "Signing setup OK: no production signing material; build.gradle reads the CI debug signing variables."
+    - name: Validate and stage CI debug signing key
+      env:
+        CI_DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
+        CI_DEBUG_KEYSTORE_PASSWORD: ${{ secrets.DEBUG_KEYSTORE_PASSWORD }}
+        CI_DEBUG_KEY_ALIAS: ${{ secrets.DEBUG_KEY_ALIAS }}
+        CI_DEBUG_KEY_PASSWORD: ${{ secrets.DEBUG_KEY_PASSWORD }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        for v in CI_DEBUG_KEYSTORE_BASE64 CI_DEBUG_KEYSTORE_PASSWORD CI_DEBUG_KEY_ALIAS CI_DEBUG_KEY_PASSWORD; do
+          if [[ -z "${!v:-}" ]]; then
+            echo "::error::Required GitHub Actions secret ${v#CI_} is missing or empty."
+            exit 1
+          fi
+        done
+
+        KEYSTORE_PATH="$RUNNER_TEMP/smart-attendance-ci-debug.jks"
+        umask 077
+        printf '%s' "$CI_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+
+        # Passwords are passed to keytool through environment variables
+        # (-storepass:env / -keypass:env), never on the command line, and
+        # keytool output is not printed.
+        if ! keytool -list -v -keystore "$KEYSTORE_PATH" -alias "$CI_DEBUG_KEY_ALIAS" \
+              -storepass:env CI_DEBUG_KEYSTORE_PASSWORD > "$RUNNER_TEMP/ci-debug-cert.txt" 2>/dev/null; then
+          echo "::error::The CI debug keystore, key alias or keystore password is invalid."
+          exit 1
+        fi
+        # The key password must open the key itself (Gradle needs it).
+        if ! keytool -certreq -keystore "$KEYSTORE_PATH" -alias "$CI_DEBUG_KEY_ALIAS" \
+              -storepass:env CI_DEBUG_KEYSTORE_PASSWORD -keypass:env CI_DEBUG_KEY_PASSWORD \
+              -file /dev/null >/dev/null 2>&1; then
+          echo "::error::DEBUG_KEY_PASSWORD does not open the key in the CI debug keystore."
+          exit 1
+        fi
+
+        # The key's SHA-1 (public, not secret) must be registered for Google Sign-In.
+        SHA1="$(grep -m1 -E '^\s*SHA1:' "$RUNNER_TEMP/ci-debug-cert.txt" | awk '{print $2}' | tr -d ':' | tr 'A-F' 'a-f')"
+        rm -f "$RUNNER_TEMP/ci-debug-cert.txt"
+        if [[ ! "$SHA1" =~ ^[0-9a-f]{40}$ ]]; then
+          echo "::error::Could not read the SHA-1 of the CI debug key."
+          exit 1
+        fi
+        REGISTERED="$(jq -r '.client[] | select(.client_info.android_client_info.package_name == "in.cit.smartattendance.v2") | .oauth_client[]? | .android_info.certificate_hash // empty' android/app/google-services.json | tr 'A-F' 'a-f' | sort -u)"
+        if ! grep -qx "$SHA1" <<< "$REGISTERED"; then
+          echo "::error::The CI debug key's SHA-1 ($SHA1) is not registered for in.cit.smartattendance.v2 in google-services.json. Add it in Firebase (Project settings > Your apps > SHA certificate fingerprints) and download google-services.json again."
+          exit 1
+        fi
+        echo "CI_DEBUG_CERT_SHA1=$SHA1" >> "$GITHUB_ENV"
+        echo "CI debug key OK. SHA-1 $SHA1 is registered in Firebase."
+    - name: Signing certificate fingerprints (register SHA-256 in the Mappls console)
+      env:
+        CI_DEBUG_KEYSTORE_PATH: ${{ runner.temp }}/smart-attendance-ci-debug.jks
+        CI_DEBUG_KEYSTORE_PASSWORD: ${{ secrets.DEBUG_KEYSTORE_PASSWORD }}
+        CI_DEBUG_KEY_ALIAS: ${{ secrets.DEBUG_KEY_ALIAS }}
+      run: |
+        set -euo pipefail
+        # Public fingerprints only (not secret). Mappls ties the licence to the
+        # package name and this SHA-256.
+        keytool -list -v -keystore "$CI_DEBUG_KEYSTORE_PATH" -alias "$CI_DEBUG_KEY_ALIAS" -storepass:env CI_DEBUG_KEYSTORE_PASSWORD 2>/dev/null \
+          | grep -E '^\s*SHA(1|256):' | sed 's/^\s*/  /'
+        echo "Package name: in.cit.smartattendance.v2"
+    - name: Cache Gradle download
+      uses: actions/cache@v4
+      with:
+        path: ~/.gradle/wrapper/dists
+        key: gradle-wrapper-${{ hashFiles('v2/android/gradle/wrapper/gradle-wrapper.properties') }}
+    - name: Download Gradle (up to 3 attempts)
+      working-directory: v2/android
+      run: |
+        for attempt in 1 2 3; do
+          if sh ./gradlew --version --no-daemon > /dev/null; then
+            echo "Gradle is ready (attempt $attempt)."
+            exit 0
+          fi
+          echo "Gradle download failed (attempt $attempt). Retrying in 20 seconds..."
+          sleep 20
+        done
+        echo "::error::Gradle could not be downloaded after 3 attempts. This is a network problem on the build server: re-run the job."
+        exit 1
+    - name: Build Mappls test APK (64-bit phones)
+      env:
+        CI_DEBUG_KEYSTORE_PATH: ${{ runner.temp }}/smart-attendance-ci-debug.jks
+        CI_DEBUG_KEYSTORE_PASSWORD: ${{ secrets.DEBUG_KEYSTORE_PASSWORD }}
+        CI_DEBUG_KEY_ALIAS: ${{ secrets.DEBUG_KEY_ALIAS }}
+        CI_DEBUG_KEY_PASSWORD: ${{ secrets.DEBUG_KEY_PASSWORD }}
+        CI_REQUIRE_CI_DEBUG_SIGNING: 'true'
+      run: |
+        set -euo pipefail
+        flutter build apk --debug --split-per-abi --target-platform android-arm64 --dart-define=MAPPLS=true
+        mkdir -p dist
+        cp build/app/outputs/flutter-apk/app-arm64-v8a-debug.apk dist/SmartAttendance-MAPPLS-TEST-arm64.apk
+        ls -la dist
+    - name: Remove CI debug signing material
+      if: always()
+      shell: bash
+      run: |
+        rm -f "$RUNNER_TEMP/smart-attendance-ci-debug.jks" "$RUNNER_TEMP/ci-debug-cert.txt" "$RUNNER_TEMP/signer.txt"
+        # Gradle's signing-config intermediates can contain the passwords.
+        if [[ -d build ]]; then
+          find build -path '*intermediates*' -iname '*signing*config*' -prune -exec rm -rf {} + 2>/dev/null || true
+        fi
+        echo "CI signing material removed."
+    - name: Remove Mappls licence files
+      if: always()
+      env:
+        MAPPLS_APP_ID: ${{ secrets.MAPPLS_APP_ID }}
+      run: rm -f "android/app/${MAPPLS_APP_ID}.a.olf" "android/app/${MAPPLS_APP_ID}.a.conf"; echo "Mappls licence files removed."
+    - name: Upload Mappls test APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: V2-MAPPLS-TEST-arm64
+        path: v2/dist/SmartAttendance-MAPPLS-TEST-arm64.apk
+        retention-days: 14
