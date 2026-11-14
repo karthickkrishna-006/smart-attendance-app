@@ -42,6 +42,16 @@ jobs:
           if [[ ! -s "$f" ]]; then echo "::error::A Mappls licence file is empty after decoding: check MAPPLS_OLF_B64 / MAPPLS_CONF_B64."; exit 1; fi
         done
         echo "Mappls licence files written: $(stat -c%s "android/app/${MAPPLS_APP_ID}.a.olf") and $(stat -c%s "android/app/${MAPPLS_APP_ID}.a.conf") bytes (contents not printed)."
+        # Newer Flutter + Mappls bring newer AndroidX libraries (androidx.core
+        # 1.18), which need Android Gradle plugin 8.9.1+, Gradle 8.11.1+ and
+        # compileSdk 36. Raised here for this test build only.
+        sed -i 's/id "com.android.application" version "8.7.3"/id "com.android.application" version "8.9.1"/' android/settings.gradle
+        sed -i 's#gradle-8.10.2-bin.zip#gradle-8.11.1-bin.zip#' android/gradle/wrapper/gradle-wrapper.properties
+        sed -i 's/compileSdk = 35/compileSdk = 36/' android/app/build.gradle
+        grep -q 'id "com.android.application" version "8.9.1"' android/settings.gradle || { echo "::error::Could not raise the Android Gradle plugin version in android/settings.gradle."; exit 1; }
+        grep -q 'gradle-8.11.1-bin.zip' android/gradle/wrapper/gradle-wrapper.properties || { echo "::error::Could not raise the Gradle version in gradle-wrapper.properties."; exit 1; }
+        grep -q 'compileSdk = 36' android/app/build.gradle || { echo "::error::Could not raise compileSdk in android/app/build.gradle."; exit 1; }
+        echo "Android build tools for this test build: AGP 8.9.1, Gradle 8.11.1, compileSdk 36."
         # Real Mappls engine instead of the placeholder, and the Mappls SDK.
         cp mappls/mappls_engine.dart lib/features/monitor/mappls_engine.dart
         flutter pub add mappls_gl:2.0.7
