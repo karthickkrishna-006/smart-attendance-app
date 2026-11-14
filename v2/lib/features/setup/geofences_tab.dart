@@ -8,6 +8,7 @@ import '../monitor/street_screens.dart';
 import '../../data/location.dart';
 import '../../domain/area.dart';
 import '../../domain/geo.dart';
+import 'boundaries_map_page.dart';
 import 'district_admin.dart';
 import 'setup_screen.dart' show runWrite;
 
@@ -165,6 +166,15 @@ class GeofencesTab extends StatelessWidget {
               floatingActionButton: areas.isEmpty
                   ? null
                   : Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [
+                      FloatingActionButton.extended(
+                        heroTag: 'viewmap',
+                        backgroundColor: AppColors.indigo,
+                        foregroundColor: Colors.white,
+                        onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => BoundariesMapPage(dir: dir))),
+                        icon: const Icon(Icons.map_outlined),
+                        label: const Text('View on map'),
+                      ),
+                      const SizedBox(height: 10),
                       FloatingActionButton.extended(
                         heroTag: 'draw',
                         onPressed: () async {

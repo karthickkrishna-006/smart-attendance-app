@@ -4,3 +4,5 @@ analyzer:
   exclude:
     - build/**
     - tests/rules/**
+    # Mappls engine: only compiled by the Mappls test build (needs mappls_gl).
+    - mappls/**

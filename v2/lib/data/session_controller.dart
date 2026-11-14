@@ -103,12 +103,23 @@ class SessionController extends ChangeNotifier {
     return areaPaths[ids.first] ?? [ids.first];
   }
 
-  /// "District › Block › Panchayat" for each area of the current role.
+  /// The areas of the current role, shortest form: an area inside another
+  /// assigned area is not listed again (the block already covers its zones,
+  /// panchayats and streets), and the district name is left out.
   List<String> get scopeLabels {
     final a = current;
     if (a == null) return const [];
+    final ids = a.areaIds;
+    final widest = ids.where((id) {
+      final path = areaPaths[id] ?? [id];
+      return !ids.any((other) => other != id && path.contains(other));
+    });
     return [
-      for (final id in a.areaIds) areaLabel(areaPaths[id] ?? [id], areaNames),
+      for (final id in widest)
+        areaLabel(
+          (areaPaths[id] ?? [id]).length > 1 ? (areaPaths[id] ?? [id]).sublist(1) : (areaPaths[id] ?? [id]),
+          areaNames,
+        ),
     ];
   }
 

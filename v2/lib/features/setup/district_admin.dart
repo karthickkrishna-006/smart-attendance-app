@@ -5,6 +5,7 @@ import '../../app/theme.dart';
 import '../../app/ui.dart';
 import '../../data/directory.dart';
 import '../../data/location.dart';
+import '../../data/my_location.dart';
 import '../../data/session_controller.dart';
 import '../../domain/area.dart';
 import '../../domain/designations.dart';
@@ -148,7 +149,38 @@ class BoundaryDrawPage extends StatefulWidget {
 class _BoundaryDrawPageState extends State<BoundaryDrawPage> {
   final _map = LiveMapController();
   final _points = <GeoPoint2>[];
+  final _me = MyLocation.instance;
   bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _me.addListener(_onMove);
+    _me.acquire().catchError((Object e) => showToast('$e', kind: ToastKind.error));
+  }
+
+  @override
+  void dispose() {
+    _me.removeListener(_onMove);
+    _me.release();
+    super.dispose();
+  }
+
+  void _onMove() {
+    if (mounted) setState(() {});
+  }
+
+  /// Walk to a corner of the area and mark it exactly where you stand.
+  void _cornerHere() {
+    final at = _me.at;
+    if (at == null) {
+      showToast('Your location is not known yet.', kind: ToastKind.error);
+      return;
+    }
+    final acc = _me.accuracyM ?? 999;
+    setState(() => _points.add(at));
+    if (acc > 20) showToast('Corner added, but GPS is weak here (±${acc.round()} m). Wait a moment in the open for a better fix.');
+  }
 
   Future<void> _centreOnMe() async {
     try {
@@ -186,7 +218,8 @@ class _BoundaryDrawPageState extends State<BoundaryDrawPage> {
         body: Column(children: [
           const Padding(
             padding: EdgeInsets.all(12),
-            child: Text('Tap the corners of the area in order. Use the satellite-free street map and zoom in for accuracy.',
+            child: Text('Tap the corners of the area in order, or walk to each corner and press the pin button to add the corner '
+                'exactly where you stand (blue dot = you, live).',
                 style: TextStyle(color: AppColors.muted)),
           ),
           Expanded(
@@ -194,6 +227,8 @@ class _BoundaryDrawPageState extends State<BoundaryDrawPage> {
               center: const GeoPoint2(12.6919, 79.9762),
               zoom: 14,
               controller: _map,
+              me: _me.at,
+              meAccuracyM: _me.accuracyM,
               onMapTap: (p) => setState(() => _points.add(p)),
               route: _points.length == 2 ? List.of(_points) : const [],
               areas: [
@@ -212,6 +247,12 @@ class _BoundaryDrawPageState extends State<BoundaryDrawPage> {
               padding: const EdgeInsets.all(12),
               child: Row(children: [
                 IconButton.filledTonal(tooltip: 'Centre on me', onPressed: _centreOnMe, icon: const Icon(Icons.my_location)),
+                const SizedBox(width: 8),
+                IconButton.filled(
+                  tooltip: 'Add corner here (where I stand)',
+                  onPressed: _me.at == null ? null : _cornerHere,
+                  icon: const Icon(Icons.add_location_alt),
+                ),
                 const SizedBox(width: 8),
                 IconButton.filledTonal(tooltip: 'Undo', onPressed: _points.isEmpty ? null : () => setState(_points.removeLast), icon: const Icon(Icons.undo)),
                 const SizedBox(width: 8),

@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../../app/theme.dart';
 import '../../app/ui.dart';
 import '../../data/attendance_repository.dart';
+import '../../data/my_location.dart';
 import '../../data/officer_attendance.dart';
 import '../../data/scoped.dart';
 import '../../data/session_controller.dart';
@@ -99,6 +100,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
   DateTime _trailsAt = DateTime(2000);
   Timer? _ticker;
   bool _fitted = false;
+  bool _showMe = false;
 
   @override
   void initState() {
@@ -113,7 +115,34 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
   void dispose() {
     _ticker?.cancel();
     _search.dispose();
+    if (_showMe) {
+      MyLocation.instance.removeListener(_onMe);
+      MyLocation.instance.release();
+    }
     super.dispose();
+  }
+
+  void _onMe() {
+    if (mounted) setState(() {});
+  }
+
+  /// "Where am I": my own live position among my workers.
+  Future<void> _toggleMe() async {
+    final me = MyLocation.instance;
+    if (_showMe) {
+      me.removeListener(_onMe);
+      me.release();
+      setState(() => _showMe = false);
+      return;
+    }
+    try {
+      await me.acquire();
+      me.addListener(_onMe);
+      setState(() => _showMe = true);
+      if (me.at != null) _map.moveTo(me.at!, zoom: 16);
+    } catch (e) {
+      showToast('$e', kind: ToastKind.error);
+    }
   }
 
   /// Recent path (last 30 min) of the visible workers, refreshed every minute.
@@ -314,6 +343,8 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                       center: centre,
                       controller: _map,
                       route: _route,
+                      me: _showMe ? MyLocation.instance.at : null,
+                      meAccuracyM: _showMe ? MyLocation.instance.accuracyM : null,
                       onPinTap: (id) {
                         final p = people.where((x) => x['uid'] == id).firstOrNull;
                         if (p != null) _select(p, visits, whereBy[id] ?? '');
@@ -358,6 +389,8 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                       top: kGoogleMaps ? 60 : 10,
                       child: Column(children: [
                         _mapButton(Icons.fit_screen, 'Show everyone', () => _map.fitAll(points)),
+                        const SizedBox(height: 8),
+                        _mapButton(Icons.my_location, _showMe ? 'Hide me' : 'Where am I', _toggleMe, active: _showMe),
                         const SizedBox(height: 8),
                         _mapButton(_showTrails ? Icons.timeline : Icons.timeline_outlined, _showTrails ? 'Hide routes' : 'Show routes', () {
                           setState(() {

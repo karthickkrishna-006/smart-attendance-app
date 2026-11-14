@@ -9,11 +9,18 @@ import 'package:latlong2/latlong.dart' as ll;
 
 import '../../app/theme.dart';
 import '../../domain/geo.dart';
+import 'mappls_engine.dart';
 
 /// Google Maps is used when the build has a Maps API key
 /// (`--dart-define=GOOGLE_MAPS=true`, set by the CI workflow when the
 /// MAPS_API_KEY secret exists); otherwise OpenStreetMap.
 const bool kGoogleMaps = bool.fromEnvironment('GOOGLE_MAPS');
+
+/// Mappls (MapmyIndia) is used when the build includes the Mappls SDK and the
+/// app's licence files (the "Build v2 with Mappls" workflow).
+const bool kMappls = bool.fromEnvironment('MAPPLS');
+
+const _meBlue = Color(0xFF1A73E8);
 
 class MapArea {
   const MapArea({required this.id, this.ring = const [], this.center, this.radiusM, required this.stroke, required this.fill});
@@ -67,6 +74,13 @@ String initialsOf(String name) {
 class LiveMapController {
   void Function(GeoPoint2 at, double zoom)? _move;
   void Function(List<GeoPoint2> points)? _fit;
+
+  /// For map engines in other files (the Mappls engine).
+  void bind({required void Function(GeoPoint2 at, double zoom) move, required void Function(List<GeoPoint2> points) fit}) {
+    _move = move;
+    _fit = fit;
+  }
+
   void moveTo(GeoPoint2 at, {double zoom = 17}) => _move?.call(at, zoom);
   void fitAll(List<GeoPoint2> points) {
     if (points.isEmpty) return;
@@ -87,6 +101,8 @@ class LiveMapView extends StatelessWidget {
     this.onPinTap,
     this.onMapTap,
     this.zoom = 15,
+    this.me,
+    this.meAccuracyM,
   });
 
   final GeoPoint2 center;
@@ -101,12 +117,19 @@ class LiveMapView extends StatelessWidget {
   final void Function(GeoPoint2 at)? onMapTap;
   final double zoom;
 
+  /// The phone's own live position ("where I am"): blue dot + accuracy circle.
+  final GeoPoint2? me;
+  final double? meAccuracyM;
+
   @override
-  Widget build(BuildContext context) => kGoogleMaps ? _GoogleMap(view: this) : _OsmMap(view: this);
+  Widget build(BuildContext context) {
+    if (kMappls && kMapplsAvailable) return buildMapplsMap(this);
+    return kGoogleMaps ? _GoogleMap(view: this) : _OsmMap(view: this);
+  }
 }
 
 /// Draws an initials pin (circle with a white ring and a point) as PNG bytes.
-Future<Uint8List> _pinPng(String initials, Color color, bool selected) async {
+Future<Uint8List> pinPng(String initials, Color color, bool selected) async {
   const w = 96.0, h = 116.0, r = 38.0;
   final rec = ui.PictureRecorder();
   final c = Canvas(rec);
@@ -169,7 +192,7 @@ class _GoogleMapState extends State<_GoogleMap> {
       final k = _iconKey(p);
       if (_icons.containsKey(k) || _pending.contains(k)) continue;
       _pending.add(k);
-      _pinPng(p.initials, p.color, p.selected).then((png) {
+      pinPng(p.initials, p.color, p.selected).then((png) {
         if (!mounted) return;
         setState(() {
           _icons[k] = gm.BitmapDescriptor.bytes(png, width: 40);
@@ -212,6 +235,10 @@ class _GoogleMapState extends State<_GoogleMap> {
             gm.Circle(circleId: gm.CircleId(a.id), center: _ll(a.center!), radius: a.radiusM!, strokeColor: a.stroke, strokeWidth: 3, fillColor: a.fill),
           for (final d in v.dots)
             gm.Circle(circleId: gm.CircleId('dot-${d.id}'), center: _ll(d.at), radius: d.radiusM, strokeColor: d.stroke, strokeWidth: 2, fillColor: d.fill),
+          if (v.me != null && (v.meAccuracyM ?? 0) > 0)
+            gm.Circle(circleId: const gm.CircleId('me-accuracy'), center: _ll(v.me!), radius: v.meAccuracyM!, strokeColor: _meBlue.withValues(alpha: 0.5), strokeWidth: 1, fillColor: _meBlue.withValues(alpha: 0.12)),
+          if (v.me != null)
+            gm.Circle(circleId: const gm.CircleId('me'), center: _ll(v.me!), radius: 3, strokeColor: Colors.white, strokeWidth: 3, fillColor: _meBlue, zIndex: 5),
         },
         polylines: {
           for (final p in v.pins.where((p) => p.trail.length > 1))
@@ -300,6 +327,8 @@ class _OsmMapState extends State<_OsmMap> {
               fm.CircleMarker(point: _ll(a.center!), radius: a.radiusM!, useRadiusInMeter: true, color: a.fill, borderColor: a.stroke, borderStrokeWidth: 2.5),
             for (final d in v.dots)
               fm.CircleMarker(point: _ll(d.at), radius: d.radiusM, useRadiusInMeter: true, color: d.fill, borderColor: d.stroke, borderStrokeWidth: 1.5),
+            if (v.me != null && (v.meAccuracyM ?? 0) > 0)
+              fm.CircleMarker(point: _ll(v.me!), radius: v.meAccuracyM!, useRadiusInMeter: true, color: _meBlue.withValues(alpha: 0.12), borderColor: _meBlue.withValues(alpha: 0.5), borderStrokeWidth: 1),
           ]),
           fm.PolylineLayer(polylines: [
             for (final p in v.pins.where((p) => p.trail.length > 1))
@@ -307,6 +336,20 @@ class _OsmMapState extends State<_OsmMap> {
             if (v.route.length > 1) fm.Polyline(points: [for (final p in v.route) _ll(p)], strokeWidth: 5, color: AppColors.indigo),
           ]),
           fm.MarkerLayer(markers: [
+            if (v.me != null)
+              fm.Marker(
+                point: _ll(v.me!),
+                width: 22,
+                height: 22,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: _meBlue,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 3),
+                    boxShadow: [BoxShadow(color: _meBlue.withValues(alpha: 0.4), blurRadius: 8, spreadRadius: 2)],
+                  ),
+                ),
+              ),
             for (final p in v.pins)
               fm.Marker(
                 point: _ll(p.at),

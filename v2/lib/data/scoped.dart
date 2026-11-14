@@ -33,38 +33,45 @@ List<Query<Map<String, dynamic>>> scopedQueries(SessionController session, Strin
 }
 
 /// Live, de-duplicated union of several queries.
+///
+/// Re-listenable: every listener (for example a StreamBuilder that is rebuilt
+/// when the screen scrolls or a tab changes) gets its own subscriptions. A
+/// single-listener stream here caused "Bad state: Stream has already been
+/// listened to", which showed as parts of screens disappearing.
 Stream<List<Map<String, dynamic>>> watchMerged(List<Query<Map<String, dynamic>>> queries,
     {int Function(Map<String, dynamic> a, Map<String, dynamic> b)? sort}) {
-  if (queries.isEmpty) return Stream.value(const []);
-  final parts = List<Map<String, Map<String, dynamic>>?>.filled(queries.length, null);
-  final subs = <StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>[];
-  late final StreamController<List<Map<String, dynamic>>> out;
-  out = StreamController(
-    onListen: () {
-      for (var i = 0; i < queries.length; i++) {
-        final index = i;
-        subs.add(queries.elementAt(i).snapshots().listen((snap) {
-          parts[index] = {for (final d in snap.docs) d.id: {...d.data(), 'id': d.id}};
-          if (parts.every((p) => p != null)) {
-            final merged = <String, Map<String, dynamic>>{};
-            for (final p in parts) {
-              merged.addAll(p!);
-            }
-            final list = merged.values.toList();
-            if (sort != null) list.sort(sort);
-            out.add(list);
+  if (queries.isEmpty) return emptyList();
+  return Stream.multi((out) {
+    final parts = List<Map<String, Map<String, dynamic>>?>.filled(queries.length, null);
+    final subs = <StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>[];
+    for (var i = 0; i < queries.length; i++) {
+      final index = i;
+      subs.add(queries.elementAt(i).snapshots().listen((snap) {
+        parts[index] = {for (final d in snap.docs) d.id: {...d.data(), 'id': d.id}};
+        if (parts.every((p) => p != null)) {
+          final merged = <String, Map<String, dynamic>>{};
+          for (final p in parts) {
+            merged.addAll(p!);
           }
-        }, onError: out.addError));
-      }
-    },
-    onCancel: () async {
+          final list = merged.values.toList();
+          if (sort != null) list.sort(sort);
+          out.add(list);
+        }
+      }, onError: out.addError));
+    }
+    out.onCancel = () async {
       for (final s in subs) {
         await s.cancel();
       }
-    },
-  );
-  return out.stream;
+    };
+  });
 }
+
+/// An empty result that any number of listeners can listen to.
+Stream<List<Map<String, dynamic>>> emptyList() => Stream.multi((out) {
+      out.add(const []);
+      out.close();
+    });
 
 int millisOf(Object? t) => t is Timestamp ? t.millisecondsSinceEpoch : 0;
 
@@ -101,26 +108,24 @@ Stream<List<Map<String, dynamic>>> watchScoped(SessionController session, String
     {String? day, bool orgScoped = true, int Function(Map<String, dynamic> a, Map<String, dynamic> b)? sort}) {
   final primary = scopedQueries(session, collection, day: day, orgScoped: orgScoped);
   if (day == null) return watchMerged(primary, sort: sort);
-  late final StreamController<List<Map<String, dynamic>>> out;
-  StreamSubscription<List<Map<String, dynamic>>>? sub;
-  var fellBack = false;
-  void listenTo(Stream<List<Map<String, dynamic>>> s) {
-    sub = s.listen(out.add, onError: (Object e) {
-      final needsIndex = e is FirebaseException && e.code == 'failed-precondition';
-      if (needsIndex && !fellBack) {
-        fellBack = true;
-        sub?.cancel();
-        final fallback = scopedQueries(session, collection, orgScoped: orgScoped);
-        listenTo(watchMerged(fallback, sort: sort).map((list) => list.where((r) => r['date'] == day).toList()));
-      } else {
-        out.addError(e);
-      }
-    });
-  }
+  return Stream.multi((out) {
+    StreamSubscription<List<Map<String, dynamic>>>? sub;
+    var fellBack = false;
+    void listenTo(Stream<List<Map<String, dynamic>>> s) {
+      sub = s.listen(out.add, onError: (Object e) {
+        final needsIndex = e is FirebaseException && e.code == 'failed-precondition';
+        if (needsIndex && !fellBack) {
+          fellBack = true;
+          sub?.cancel();
+          final fallback = scopedQueries(session, collection, orgScoped: orgScoped);
+          listenTo(watchMerged(fallback, sort: sort).map((list) => list.where((r) => r['date'] == day).toList()));
+        } else {
+          out.addError(e);
+        }
+      });
+    }
 
-  out = StreamController(
-    onListen: () => listenTo(watchMerged(primary, sort: sort)),
-    onCancel: () => sub?.cancel(),
-  );
-  return out.stream;
+    listenTo(watchMerged(primary, sort: sort));
+    out.onCancel = () => sub?.cancel();
+  });
 }
