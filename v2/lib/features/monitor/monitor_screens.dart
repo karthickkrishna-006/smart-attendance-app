@@ -101,6 +101,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
   Timer? _ticker;
   bool _fitted = false;
   bool _showMe = false;
+  bool _fullScreen = false;
 
   @override
   void initState() {
@@ -388,6 +389,13 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                       right: 10,
                       top: kGoogleMaps ? 60 : 10,
                       child: Column(children: [
+                        _mapButton(_fullScreen ? Icons.fullscreen_exit : Icons.fullscreen, _fullScreen ? 'Exit full screen' : 'Full screen map',
+                            () => setState(() => _fullScreen = !_fullScreen), active: _fullScreen),
+                        const SizedBox(height: 8),
+                        _mapButton(Icons.add, 'Zoom in', _map.zoomIn),
+                        const SizedBox(height: 8),
+                        _mapButton(Icons.remove, 'Zoom out', _map.zoomOut),
+                        const SizedBox(height: 8),
                         _mapButton(Icons.fit_screen, 'Show everyone', () => _map.fitAll(points)),
                         const SizedBox(height: 8),
                         _mapButton(Icons.my_location, _showMe ? 'Hide me' : 'Where am I', _toggleMe, active: _showMe),
@@ -558,6 +566,30 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                     ]),
                 ]);
 
+                // Full-screen map: nothing scrolls around it, so pinch-zoom
+                // and dragging go straight to the map (all map engines).
+                if (_fullScreen) {
+                  return Column(children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                      child: Row(children: [
+                        Icon(Icons.circle, size: 10, color: _stateColor(LiveState.moving)),
+                        Text(' ${counts[LiveState.moving]}  ', style: const TextStyle(fontWeight: FontWeight.w700)),
+                        Icon(Icons.circle, size: 10, color: _stateColor(LiveState.stale)),
+                        Text(' ${counts[LiveState.stale]}  ', style: const TextStyle(fontWeight: FontWeight.w700)),
+                        Icon(Icons.circle, size: 10, color: _stateColor(LiveState.offDuty)),
+                        Text(' ${counts[LiveState.offDuty]}', style: const TextStyle(fontWeight: FontWeight.w700)),
+                        const Spacer(),
+                        TextButton.icon(
+                          onPressed: () => setState(() => _fullScreen = false),
+                          icon: const Icon(Icons.fullscreen_exit),
+                          label: const Text('Exit full screen'),
+                        ),
+                      ]),
+                    ),
+                    Expanded(child: map),
+                  ]);
+                }
                 return LayoutBuilder(builder: (context, box) {
                   final wide = box.maxWidth >= 900;
                   final header = <Widget>[

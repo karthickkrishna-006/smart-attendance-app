@@ -74,12 +74,21 @@ String initialsOf(String name) {
 class LiveMapController {
   void Function(GeoPoint2 at, double zoom)? _move;
   void Function(List<GeoPoint2> points)? _fit;
+  void Function(bool zoomIn)? _zoom;
 
   /// For map engines in other files (the Mappls engine).
-  void bind({required void Function(GeoPoint2 at, double zoom) move, required void Function(List<GeoPoint2> points) fit}) {
+  void bind({
+    required void Function(GeoPoint2 at, double zoom) move,
+    required void Function(List<GeoPoint2> points) fit,
+    void Function(bool zoomIn)? zoom,
+  }) {
     _move = move;
     _fit = fit;
+    _zoom = zoom;
   }
+
+  void zoomIn() => _zoom?.call(true);
+  void zoomOut() => _zoom?.call(false);
 
   void moveTo(GeoPoint2 at, {double zoom = 17}) => _move?.call(at, zoom);
   void fitAll(List<GeoPoint2> points) {
@@ -174,6 +183,7 @@ class _GoogleMapState extends State<_GoogleMap> {
   void initState() {
     super.initState();
     widget.view.controller._move = (at, zoom) => _c?.animateCamera(gm.CameraUpdate.newLatLngZoom(_ll(at), zoom));
+    widget.view.controller._zoom = (zoomIn) => _c?.animateCamera(zoomIn ? gm.CameraUpdate.zoomIn() : gm.CameraUpdate.zoomOut());
     widget.view.controller._fit = (pts) {
       final lats = pts.map((p) => p.lat), lngs = pts.map((p) => p.lng);
       _c?.animateCamera(gm.CameraUpdate.newLatLngBounds(
@@ -300,6 +310,7 @@ class _OsmMapState extends State<_OsmMap> {
   void initState() {
     super.initState();
     widget.view.controller._move = (at, zoom) => _c.move(_ll(at), zoom);
+    widget.view.controller._zoom = (zoomIn) => _c.move(_c.camera.center, (_c.camera.zoom + (zoomIn ? 1 : -1)).clamp(3, 20).toDouble());
     widget.view.controller._fit = (pts) => _c.fitCamera(
           fm.CameraFit.coordinates(coordinates: [for (final p in pts) _ll(p)], padding: const EdgeInsets.all(60)),
         );

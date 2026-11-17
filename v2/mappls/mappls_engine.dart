@@ -82,6 +82,7 @@ class _MapplsMapState extends State<_MapplsMap> {
           bottom: 60,
         ));
       },
+      zoom: (zoomIn) => _c?.animateCamera(zoomIn ? mp.CameraUpdate.zoomIn() : mp.CameraUpdate.zoomOut()),
     );
   }
 

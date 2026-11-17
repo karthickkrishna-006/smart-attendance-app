@@ -174,6 +174,10 @@ class _BoundariesMapPageState extends State<BoundariesMapPage> {
                     right: 12,
                     bottom: 24,
                     child: Column(children: [
+                      FloatingActionButton.small(heroTag: 'zin', tooltip: 'Zoom in', onPressed: _map.zoomIn, child: const Icon(Icons.add)),
+                      const SizedBox(height: 8),
+                      FloatingActionButton.small(heroTag: 'zout', tooltip: 'Zoom out', onPressed: _map.zoomOut, child: const Icon(Icons.remove)),
+                      const SizedBox(height: 10),
                       FloatingActionButton.small(
                         heroTag: 'fit',
                         tooltip: 'Show all boundaries',
