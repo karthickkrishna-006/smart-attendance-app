@@ -27,6 +27,9 @@ dependencies:
   latlong2: ^0.9.1
   # Google Maps (used when the build has a Maps API key; otherwise OpenStreetMap).
   google_maps_flutter: ^2.10.0
+  # Mappls (MapmyIndia) map: the app's main map. Needs the Mappls licence
+  # files, added at build time from GitHub secrets (docs/MAPPLS-SETUP.md).
+  mappls_gl: 2.0.7
 
 dev_dependencies:
   flutter_test:
