@@ -1,14 +1,12 @@
-// Mappls (MapmyIndia) map engine.
+// Mappls (MapmyIndia) map engine: the app's main map.
 //
-// Used only by the "Build v2 with Mappls (test)" workflow, which copies this
-// file over lib/features/monitor/mappls_engine.dart, adds the mappls_gl
-// package (Flutter 3.35+) and the app's Mappls licence files, and builds with
-// --dart-define=MAPPLS=true. The normal build keeps the placeholder.
+// The Mappls licence files (<appId>.a.olf and <appId>.a.conf) are added to
+// android/app at build time from GitHub secrets; see docs/MAPPLS-SETUP.md.
 //
 // API used (Mappls Flutter SDK docs, v2.0.x): MapplsMap(initialCameraPosition,
 // onMapCreated, onMapClick), controller.addImage / addSymbol / addLine /
 // addFill and their remove* counterparts, animateCamera with
-// CameraUpdate.newLatLngZoom / newLatLngBounds.
+// CameraUpdate.newLatLngZoom / newLatLngBounds / zoomIn / zoomOut.
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -24,7 +22,9 @@ const bool kMapplsAvailable = true;
 
 Widget buildMapplsMap(LiveMapView view) => _MapplsMap(view: view);
 
-String _hex(Color c) => '#${(c.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
+/// "#RRGGBB" from a colour (works on every Flutter version used here).
+int _rgb(Color c) => ((c.r * 255).round() << 16) | ((c.g * 255).round() << 8) | (c.b * 255).round();
+String _hex(Color c) => '#${_rgb(c).toRadixString(16).padLeft(6, '0')}';
 mp.LatLng _ll(GeoPoint2 p) => mp.LatLng(p.lat, p.lng);
 
 /// A circle of [radiusM] metres as a closed ring (Mappls fills are polygons).
@@ -205,7 +205,7 @@ class _MapplsMapState extends State<_MapplsMap> {
         _liveSymbols.add(await c.addSymbol(mp.SymbolOptions(geometry: _ll(v.me!), iconImage: 'me-dot', iconSize: 0.5)));
       }
       for (final p in v.pins) {
-        final img = 'pin-${p.initials}-${p.color.toARGB32()}-${p.selected}';
+        final img = 'pin-${p.initials}-${_rgb(p.color)}-${p.selected}';
         if (_images.add(img)) await c.addImage(img, await pinPng(p.initials, p.color, p.selected));
         _liveSymbols.add(await c.addSymbol(mp.SymbolOptions(geometry: _ll(p.at), iconImage: img, iconSize: 0.42, iconAnchor: 'bottom')));
       }
