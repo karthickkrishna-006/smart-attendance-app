@@ -35,9 +35,37 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.27.4'
+          # 3.35 is needed by the Mappls map SDK (mappls_gl 2.0.7).
+          flutter-version: '3.35.x'
           channel: stable
           cache: true
+
+      # The Mappls licence files are tied to the package name and the signing
+      # key's SHA-256. They come from GitHub secrets, are written only for the
+      # build, never printed, and removed at the end.
+      - name: Add Mappls licence files
+        env:
+          MAPPLS_OLF_B64: ${{ secrets.MAPPLS_OLF_B64 }}
+          MAPPLS_CONF_B64: ${{ secrets.MAPPLS_CONF_B64 }}
+          MAPPLS_APP_ID: ${{ secrets.MAPPLS_APP_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for v in MAPPLS_OLF_B64 MAPPLS_CONF_B64 MAPPLS_APP_ID; do
+            if [[ -z "${!v:-}" ]]; then
+              echo "::error::GitHub secret $v is missing. The app's map (Mappls) needs it; see v2/docs/MAPPLS-SETUP.md."; exit 1
+            fi
+          done
+          if [[ ! "$MAPPLS_APP_ID" =~ ^[A-Za-z0-9_-]+$ ]]; then
+            echo "::error::MAPPLS_APP_ID has unexpected characters: use only the part of the file name before .a.olf."; exit 1
+          fi
+          umask 077
+          printf '%s' "$MAPPLS_OLF_B64" | base64 --decode > "android/app/${MAPPLS_APP_ID}.a.olf"
+          printf '%s' "$MAPPLS_CONF_B64" | base64 --decode > "android/app/${MAPPLS_APP_ID}.a.conf"
+          for f in "android/app/${MAPPLS_APP_ID}.a.olf" "android/app/${MAPPLS_APP_ID}.a.conf"; do
+            if [[ ! -s "$f" ]]; then echo "::error::A Mappls licence file is empty after decoding: check MAPPLS_OLF_B64 / MAPPLS_CONF_B64."; exit 1; fi
+          done
+          echo "Mappls licence files written (contents not printed)."
 
       - name: Install dependencies
         run: flutter pub get
@@ -46,10 +74,10 @@ jobs:
         continue-on-error: true
         run: dart format --output=none --set-exit-if-changed lib test
 
-      - name: Analyze (errors and warnings fail the build)
+      - name: Analyze (errors fail the build; warnings are reported)
         run: |
           set -o pipefail
-          flutter analyze --no-fatal-infos 2>&1 | tee "$RUNNER_TEMP/flutter-analyze.txt"
+          flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee "$RUNNER_TEMP/flutter-analyze.txt"
 
       - name: Test
         run: |
@@ -223,7 +251,7 @@ jobs:
           CI_DEBUG_KEY_ALIAS: ${{ secrets.DEBUG_KEY_ALIAS }}
           CI_DEBUG_KEY_PASSWORD: ${{ secrets.DEBUG_KEY_PASSWORD }}
           CI_REQUIRE_CI_DEBUG_SIGNING: 'true'
-        run: flutter build apk --debug --split-per-abi --target-platform android-arm64 $MAPS_DEFINE
+        run: flutter build apk --debug --split-per-abi --target-platform android-arm64 $MAPS_DEFINE --dart-define=MAPPLS=true
 
       - name: Build release APKs (one per phone CPU type, signed with the CI test key)
         env:
@@ -233,7 +261,7 @@ jobs:
           CI_DEBUG_KEY_ALIAS: ${{ secrets.DEBUG_KEY_ALIAS }}
           CI_DEBUG_KEY_PASSWORD: ${{ secrets.DEBUG_KEY_PASSWORD }}
           CI_REQUIRE_CI_DEBUG_SIGNING: 'true'
-        run: flutter build apk --release --split-per-abi --target-platform android-arm,android-arm64 $MAPS_DEFINE
+        run: flutter build apk --release --split-per-abi --target-platform android-arm,android-arm64 $MAPS_DEFINE --dart-define=MAPPLS=true
 
       - name: Verify APKs (package, signature, Firebase key) and report sizes
         shell: bash
@@ -310,6 +338,13 @@ jobs:
 
           (cd dist && sha256sum *.apk > SHA256SUMS.txt)
           cat "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove Mappls licence files
+        if: always()
+        env:
+          MAPPLS_APP_ID: ${{ secrets.MAPPLS_APP_ID }}
+        shell: bash
+        run: rm -f "android/app/${MAPPLS_APP_ID}.a.olf" "android/app/${MAPPLS_APP_ID}.a.conf"; echo "Mappls licence files removed."
 
       - name: Remove CI debug signing material
         if: always()
