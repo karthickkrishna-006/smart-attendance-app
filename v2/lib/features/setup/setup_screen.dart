@@ -355,8 +355,14 @@ class _SettingsTab extends StatelessWidget {
           final open = c['openWorkerSignUp'] == true;
           final sup = c['supervisorsMayCreateTasks'] == true;
           final col = c['collectorMayAssignTasks'] == true;
-          Future<void> save({bool? o, bool? s, bool? k}) => runWrite(
-                () => dir.saveConfig(openWorkerSignUp: o ?? open, supervisorsMayCreateTasks: s ?? sup, collectorMayAssignTasks: k ?? col),
+          final zoneOnly = c['zonePhotoOnly'] == true;
+          Future<void> save({bool? o, bool? s, bool? k, bool? z}) => runWrite(
+                () => dir.saveConfig(
+                  openWorkerSignUp: o ?? open,
+                  supervisorsMayCreateTasks: s ?? sup,
+                  collectorMayAssignTasks: k ?? col,
+                  zonePhotoOnly: z ?? zoneOnly,
+                ),
                 done: 'Settings saved.',
               );
           return ListView(padding: const EdgeInsets.all(12), children: [
@@ -372,6 +378,13 @@ class _SettingsTab extends StatelessWidget {
                   title: const Text('Supervisors may create and assign tasks'),
                   value: sup,
                   onChanged: (v) => save(s: v),
+                ),
+                SwitchListTile(
+                  title: const Text('Camera only inside a cleaning zone'),
+                  subtitle: const Text('On: field workers can take proof photos only while they are at one of their street\'s cleaning '
+                      'zones, and each photo report becomes the proof for that zone. Off (demonstrations): the camera always works.'),
+                  value: zoneOnly,
+                  onChanged: (v) => save(z: v),
                 ),
                 SwitchListTile(
                   title: const Text('The Collector may create and assign tasks'),

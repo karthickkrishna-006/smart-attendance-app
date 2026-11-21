@@ -755,3 +755,37 @@ test('removing demo / sample data: only demo- / smp- areas and boundaries, only 
   await assertSucceeds(deleteDoc(doc(a, 'areas/smp-block')));
   await assertSucceeds(deleteDoc(doc(a, 'areas/demo-district')));
 });
+
+test('zone visits: check-in at a zone of an own street, check-out once, proof photo linked once (own report only)', async () => {
+  await seed('cleaningZones/zA', { name: 'Test Zone 1', streetFenceId: 'g1', areaPath: ['d1', 'b1'], center: new GeoPoint(12.69, 79.97), radiusM: 25, order: 0 });
+  await seed('cleaningZones/zB', { name: 'Other street zone', streetFenceId: 'g2', areaPath: ['d1', 'b2'], center: new GeoPoint(12.70, 79.98), radiusM: 25, order: 0 });
+  await seed('activities/actW1', { uid: 'w1', workerName: 'Worker One', date: istToday(), areaPath: ['d1', 'b1'], status: 'submitted' });
+  await seed('activities/actW2', { uid: 'w2', workerName: 'Worker Two', date: istToday(), areaPath: ['d1', 'b2'], status: 'submitted' });
+  const w1 = as('w1', 'w1@x.in').db;
+  const zv = (extra = {}) => ({ uid: 'w1', workerName: 'Worker One', date: istToday(), orgId: 'orgA', areaPath: ['d1', 'b1'],
+    visitId: 'v1', geofenceId: 'g1', geofenceName: 'Test fence 1', zoneId: 'zA', zoneName: 'Test Zone 1', zoneOrder: 0,
+    enteredAt: Timestamp.fromMillis(Date.now() - 900000), exitedAt: null, durationMin: null, proofActivityId: null,
+    createdAt: serverTimestamp(), closedAt: null, synthetic: false, ...extra });
+  await assertFails(setDoc(doc(w1, 'zoneVisits/x0'), zv({ zoneId: 'zB' })));                                  // zone of another street
+  await assertFails(setDoc(doc(w1, 'zoneVisits/x0'), zv({ geofenceId: 'g2', areaPath: ['d1', 'b2'], zoneId: 'zB' }))); // not their area
+  await assertFails(setDoc(doc(w1, 'zoneVisits/x0'), zv({ proofActivityId: 'actW1' })));                     // proof comes later
+  await assertSucceeds(setDoc(doc(w1, 'zoneVisits/z1'), zv()));
+  await assertFails(updateDoc(doc(w1, 'zoneVisits/z1'), { enteredAt: Timestamp.now() }));                      // entry never changes
+  await assertFails(updateDoc(doc(w1, 'zoneVisits/z1'), { proofActivityId: 'actW2' }));                       // someone else's report
+  await assertSucceeds(updateDoc(doc(w1, 'zoneVisits/z1'), { proofActivityId: 'actW1' }));
+  await assertFails(updateDoc(doc(w1, 'zoneVisits/z1'), { proofActivityId: 'actW1x' }));                      // linked once
+  await assertSucceeds(updateDoc(doc(w1, 'zoneVisits/z1'), { exitedAt: Timestamp.now(), durationMin: 15, closedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(w1, 'zoneVisits/z1'), { exitedAt: Timestamp.now(), durationMin: 16, closedAt: serverTimestamp() })); // once
+  await assertSucceeds(getDocs(query(collection(as('sup1', 'sup1@x.in').db, 'zoneVisits'), where('areaPath', 'array-contains', 'b1'), where('date', '==', istToday()))));
+  await assertSucceeds(getDoc(doc(as('col', 'col@x.in').db, 'zoneVisits/z1')));
+  await assertFails(getDoc(doc(as('sup2', 'sup2@x.in').db, 'zoneVisits/z1')));
+  await assertFails(getDoc(doc(as('w2', 'w2@x.in').db, 'zoneVisits/z1')));
+});
+
+test('settings: camera-only-inside-a-zone switch is a yes/no set by the administrator', async () => {
+  const a = admin();
+  const save = (who, data) => { const b = writeBatch(who.db); b.set(doc(who.db, 'config/app'), { ...data, auditId: audit(b, who, 'config/app') }); return b.commit(); };
+  await assertSucceeds(save(a, { zonePhotoOnly: true }));
+  await assertFails(save(a, { zonePhotoOnly: 'yes' }));
+  await assertFails(save(as('col', 'col@x.in'), { zonePhotoOnly: false }));
+});

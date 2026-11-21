@@ -22,7 +22,7 @@ class DemoData {
   final User user;
   final FirebaseFirestore db;
 
-  static const _collections = ['attendanceSessions', 'tasks', 'activities', 'presence', 'routes', 'visits', 'photoAttendance'];
+  static const _collections = ['attendanceSessions', 'tasks', 'activities', 'presence', 'routes', 'visits', 'zoneVisits', 'photoAttendance'];
   static const blockId = 'smp-block';
 
   static final _designationByTitle = {for (final d in Designation.values) d.title: d};

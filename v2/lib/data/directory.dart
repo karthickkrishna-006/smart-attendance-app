@@ -207,12 +207,18 @@ class Directory {
   // ------------------------------------------------------------ configuration
   Stream<Map<String, dynamic>> config() => db.doc('config/app').snapshots().map((d) => d.data() ?? const {});
 
-  Future<void> saveConfig({required bool openWorkerSignUp, required bool supervisorsMayCreateTasks, required bool collectorMayAssignTasks}) async {
+  Future<void> saveConfig({
+    required bool openWorkerSignUp,
+    required bool supervisorsMayCreateTasks,
+    required bool collectorMayAssignTasks,
+    bool zonePhotoOnly = false,
+  }) async {
     final b = AuditedBatch(db, user);
     b.batch.set(db.doc('config/app'), {
       'openWorkerSignUp': openWorkerSignUp,
       'supervisorsMayCreateTasks': supervisorsMayCreateTasks,
       'collectorMayAssignTasks': collectorMayAssignTasks,
+      'zonePhotoOnly': zonePhotoOnly,
       ...b.stamp('settings_changed', 'config/app'),
     });
     await b.commit();

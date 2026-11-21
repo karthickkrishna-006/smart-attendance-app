@@ -83,6 +83,9 @@ class LiveMonitoringScreen extends StatefulWidget {
 class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
   late final _presence = watchMerged(scopedQueries(widget.session, 'presence'), sort: newestFirst('at'));
   late final _visits = watchScoped(widget.session, 'visits', day: dayKey(DateTime.now()), sort: newestFirst('enteredAt'));
+  late final _zoneVisitStream = watchScoped(widget.session, 'zoneVisits', day: dayKey(DateTime.now()),
+      sort: (a, b) => millisOf(a['enteredAt']).compareTo(millisOf(b['enteredAt'])));
+  List<Map<String, dynamic>> _zoneVisitList = const [];
   late final Future<List<Geofence>> _fences = geofencesInScope(widget.session);
   late final Future<List<Map<String, dynamic>>> _areas = WorkRepository(widget.session).areasInScope();
   late final Future<Map<String, List<CleaningZone>>> _zones =
@@ -179,7 +182,14 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
     if (fid == null) return p['onDuty'] == true ? 'Between streets' : 'Off duty';
     final here = (p['lat'] is num && p['lng'] is num) ? GeoPoint2((p['lat'] as num).toDouble(), (p['lng'] as num).toDouble()) : null;
     String zone = '';
-    if (here != null) {
+    final atZone = _zoneVisitList.where((z) => z['uid'] == p['uid'] && z['exitedAt'] == null && z['geofenceId'] == fid).lastOrNull;
+    if (atZone != null) {
+      final t = atZone['enteredAt'];
+      final since = t is Timestamp
+          ? '${t.toDate().hour.toString().padLeft(2, '0')}:${t.toDate().minute.toString().padLeft(2, '0')}'
+          : '';
+      zone = ' · Zone ${(atZone['zoneOrder'] as num? ?? 0) + 1}${since.isEmpty ? '' : ' since $since'}';
+    } else if (here != null) {
       CleaningZone? best;
       var bestD = 40.0;
       for (final z in zones[fid] ?? const <CleaningZone>[]) {
@@ -241,6 +251,22 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
           const SizedBox(height: 12),
           const Text('Streets today (automatic check-in / check-out)', style: TextStyle(fontWeight: FontWeight.w700)),
           if (mine.isEmpty) const Padding(padding: EdgeInsets.only(top: 6), child: Text('No street visits today yet.')),
+          if (_zoneVisitList.any((z) => z['uid'] == uid)) ...[
+            const SizedBox(height: 10),
+            const Text('Cleaning zones today (check-in / check-out)', style: TextStyle(fontWeight: FontWeight.w700)),
+            for (final z in _zoneVisitList.where((z) => z['uid'] == uid))
+              ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(z['exitedAt'] == null ? Icons.radio_button_checked : Icons.check_circle,
+                    color: z['exitedAt'] == null ? AppColors.turmeric : AppColors.success),
+                title: Text('${z['zoneName'] ?? 'Zone'} · ${z['geofenceName'] ?? ''}'),
+                subtitle: Text(z['exitedAt'] == null
+                    ? 'In ${shortDateTime(z['enteredAt'])} · still there'
+                    : 'In ${shortDateTime(z['enteredAt'])} · out ${shortDateTime(z['exitedAt'])} (${z['durationMin']} min)'),
+                trailing: z['proofActivityId'] != null ? const Icon(Icons.photo_camera, color: AppColors.indigo) : null,
+              ),
+          ],
           for (final v in mine)
             ListTile(
               contentPadding: EdgeInsets.zero,
@@ -285,7 +311,11 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
   @override
   Widget build(BuildContext context) {
     final problem = scopeProblem(widget.session);
-    return FutureBuilder<Map<String, List<CleaningZone>>>(
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: _zoneVisitStream,
+      builder: (context, zvSnap) {
+        _zoneVisitList = zvSnap.data ?? const [];
+        return FutureBuilder<Map<String, List<CleaningZone>>>(
       future: _zones,
       builder: (context, zoneSnap) => FutureBuilder<List<Map<String, dynamic>>>(
         future: _areas,
@@ -721,6 +751,8 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
           ),
         ),
       ),
+    );
+      },
     );
   }
 

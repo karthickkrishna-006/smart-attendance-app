@@ -44,6 +44,16 @@ class DutyService extends ChangeNotifier {
   int get zonesTotal => _zones[_tracker.current?.id]?.length ?? 0;
   VisitTracker _tracker = VisitTracker();
   String? _openVisitId;
+
+  // Zone check-in / check-out (each cleaning zone of the current street).
+  final ZoneVisitTracker _zoneVisits = ZoneVisitTracker();
+  String? _openZoneVisitId;
+  String? _lastZoneVisitId;
+  DateTime? _lastZoneClosedAt;
+
+  /// The cleaning zone the worker is at now (camera for proof photos).
+  CleaningZone? get currentZone => _zoneVisits.current;
+
   Position? _last;
   GeoPoint2? _sentPoint;
   DateTime? _sentAt;
@@ -68,7 +78,7 @@ class DutyService extends ChangeNotifier {
     if (_sub != null) return;
     _session = session;
     lastError = null;
-    await Location.current(); // permission and location-service checks, with plain messages
+    final first = await Location.current(); // permission and location-service checks, with plain messages
     _fences = await AttendanceRepository(_uid).geofencesFor(session.current?.areaIds ?? const []);
     try {
       _zones = await StreetZonesRepo().forStreets(_fences.map((f) => f.id));
@@ -77,6 +87,8 @@ class DutyService extends ChangeNotifier {
     }
     _tracker = VisitTracker();
     _openVisitId = null;
+    _zoneVisits.reset();
+    _openZoneVisitId = null;
     _sentPoint = null;
     _sentAt = null;
     _routePoint = null;
@@ -101,12 +113,17 @@ class DutyService extends ChangeNotifier {
     });
     startedAt = DateTime.now();
     notifyListeners();
+    // Start duty marks today's attendance at once (same checks as the button;
+    // never twice). The first street entry still marks it if this one failed.
+    await _autoAttendance(first);
   }
 
   Future<void> stop() async {
     await _sub?.cancel();
     _sub = null;
     final now = DateTime.now();
+    final zoneClosed = _zoneVisits.close(now);
+    if (zoneClosed != null) await _closeZoneVisit(zoneClosed);
     final closed = _tracker.close(now);
     if (closed != null) await _closeVisit(closed);
     final p = _last;
@@ -169,6 +186,13 @@ class DutyService extends ChangeNotifier {
       final street = _tracker.current;
       final id = _openVisitId;
       if (street != null && id != null) {
+        for (final ze in _zoneVisits.update(here, p.accuracy, now, _zones[street.id] ?? const [])) {
+          if (ze.kind == ZoneEventKind.entered) {
+            await _openZoneVisit(ze, street, id);
+          } else {
+            await _closeZoneVisit(ze);
+          }
+        }
         final reached = _zoneTracker.update(here, p.accuracy, _zones[street.id] ?? const []);
         if (reached.isNotEmpty) {
           notifyListeners();
@@ -232,7 +256,66 @@ class DutyService extends ChangeNotifier {
         }));
   }
 
+  Future<void> _openZoneVisit(ZoneEvent e, Geofence street, String visitId) async {
+    final ref = _db.collection('zoneVisits').doc();
+    _openZoneVisitId = ref.id;
+    notifyListeners();
+    await _guard(() => ref.set({
+          'uid': _uid,
+          'workerName': _name,
+          'date': dayKey(e.enteredAt),
+          'orgId': _orgId,
+          'areaPath': street.areaPath,
+          'visitId': visitId,
+          'geofenceId': street.id,
+          'geofenceName': street.name,
+          'zoneId': e.zone.id,
+          'zoneName': e.zone.name,
+          'zoneOrder': e.zone.order,
+          'enteredAt': Timestamp.fromDate(e.enteredAt),
+          'exitedAt': null,
+          'durationMin': null,
+          'proofActivityId': null,
+          'createdAt': FieldValue.serverTimestamp(),
+          'closedAt': null,
+          'synthetic': false,
+        }));
+  }
+
+  Future<void> _closeZoneVisit(ZoneEvent e) async {
+    final id = _openZoneVisitId;
+    _openZoneVisitId = null;
+    notifyListeners();
+    if (id == null || e.exitedAt == null) return;
+    _lastZoneVisitId = id;
+    _lastZoneClosedAt = e.exitedAt;
+    await _guard(() => _db.doc('zoneVisits/$id').update({
+          'exitedAt': Timestamp.fromDate(e.exitedAt!),
+          'durationMin': e.duration!.inMinutes,
+          'closedAt': FieldValue.serverTimestamp(),
+        }));
+  }
+
+  /// Links a submitted photo report as the proof for the current zone (or the
+  /// zone just left, within 10 minutes). Returns the zone's name, if linked.
+  Future<String?> linkZoneProof(String activityId) async {
+    String? id = _openZoneVisitId;
+    String? name = _zoneVisits.current?.name;
+    if (id == null && _lastZoneVisitId != null && _lastZoneClosedAt != null &&
+        DateTime.now().difference(_lastZoneClosedAt!) <= const Duration(minutes: 10)) {
+      id = _lastZoneVisitId;
+      name = 'the zone just finished';
+    }
+    if (id == null) return null;
+    final target = id;
+    await _guard(() => _db.doc('zoneVisits/$target').update({'proofActivityId': activityId}));
+    if (target == _lastZoneVisitId) _lastZoneVisitId = null;
+    return name;
+  }
+
   Future<void> _closeVisit(VisitEvent e) async {
+    final zoneClosed = _zoneVisits.close(e.exitedAt ?? DateTime.now());
+    if (zoneClosed != null) await _closeZoneVisit(zoneClosed);
     final id = _openVisitId;
     _openVisitId = null;
     if (id == null || e.exitedAt == null) return;

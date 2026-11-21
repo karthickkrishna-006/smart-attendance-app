@@ -105,12 +105,13 @@ class WorkRepository {
     Map<String, dynamic>? task,
     Position? position,
     List<Geofence> fences = const [],
+    String? id,
   }) async {
     if (photos.isEmpty || photos.length > 3) throw 'Add 1 to 3 photos.';
     for (final p in photos) {
       if (p.length > maxPhotoBytes) throw 'A photo is too large. Please take it again.';
     }
-    final ref = db.collection('activities').doc();
+    final ref = id == null ? db.collection('activities').doc() : db.doc('activities/$id');
     final batch = db.batch();
     for (var i = 0; i < photos.length; i++) {
       batch.set(db.doc('activityPhotos/${ref.id}_$i'), {

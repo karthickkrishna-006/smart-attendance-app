@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -9,6 +10,7 @@ import '../../app/strings.dart';
 import '../../app/theme.dart';
 import '../../app/ui.dart';
 import '../../data/attendance_repository.dart';
+import '../../data/duty_service.dart';
 import '../../data/location.dart';
 import '../../data/session_controller.dart';
 import '../../data/work_repository.dart';
@@ -73,21 +75,36 @@ class _WorkerActivityScreenState extends State<WorkerActivityScreen> {
   late final repo = WorkRepository(widget.session);
   late final stream = repo.watchMyActivities();
   late final tasks = repo.watchTasks();
+  // Setting "Camera only inside a cleaning zone" (Setup → Settings).
+  late final Stream<bool> _zoneOnly =
+      FirebaseFirestore.instance.doc('config/app').snapshots().map((d) => d.data()?['zonePhotoOnly'] == true);
   final _title = TextEditingController();
   final _details = TextEditingController();
   final _photos = <Uint8List>[];
   String? _taskId;
   bool _busy = false;
+  bool _zoneOnlyNow = false;
+  StreamSubscription<bool>? _zoneSub;
+
+  void _onDuty() {
+    if (mounted) setState(() {});
+  }
 
   @override
   void initState() {
     super.initState();
     _taskId = widget.task?['id'] as String?;
+    _zoneSub = _zoneOnly.listen((v) {
+      if (mounted) setState(() => _zoneOnlyNow = v);
+    }, onError: (Object _) {});
+    DutyService.instance.addListener(_onDuty);
     if (widget.task != null) _title.text = (widget.task!['title'] as String?) ?? '';
   }
 
   @override
   void dispose() {
+    _zoneSub?.cancel();
+    DutyService.instance.removeListener(_onDuty);
     _title.dispose();
     _details.dispose();
     super.dispose();
@@ -124,6 +141,7 @@ class _WorkerActivityScreenState extends State<WorkerActivityScreen> {
       final areaIds = widget.session.current?.areaIds ?? const <String>[];
       final fences = await AttendanceRepository(widget.session.user!.uid).geofencesFor(areaIds);
       final task = openTasks.where((t) => t['id'] == _taskId).firstOrNull;
+      final id = FirebaseFirestore.instance.collection('activities').doc().id;
       final outcome = await repo.submitActivity(
         title: _title.text,
         description: _details.text,
@@ -131,9 +149,15 @@ class _WorkerActivityScreenState extends State<WorkerActivityScreen> {
         task: task,
         position: position,
         fences: fences,
+        id: id,
       );
       showToast(outcome == SaveOutcome.saved ? s.t('workSent') : s.t('savedOffline'),
           kind: outcome == SaveOutcome.saved ? ToastKind.success : ToastKind.info);
+      // At a cleaning zone: this report is that zone's proof (not awaited, so
+      // it also works without internet; it is sent with the report).
+      DutyService.instance.linkZoneProof(id).then((zone) {
+        if (zone != null) showToast(s.t('proofLinked', {'zone': zone}), kind: ToastKind.success);
+      });
       if (!mounted) return;
       setState(() {
         _photos.clear();
@@ -158,8 +182,32 @@ class _WorkerActivityScreenState extends State<WorkerActivityScreen> {
         final open = (taskSnap.data ?? const <Map<String, dynamic>>[])
             .where((t) => ['assigned', 'in_progress', 'rework'].contains(t['status']))
             .toList();
+        final zone = DutyService.instance.currentZone;
+        final zoneOnly = _zoneOnlyNow;
+        final cameraLocked = zoneOnly && zone == null;
         return ListView(padding: const EdgeInsets.fromLTRB(16, 20, 16, 32), children: [
           Text(s.t('newActivity'), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.ink)),
+          const SizedBox(height: 10),
+          if (zone != null)
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(color: const Color(0xFFE3EFE9), borderRadius: BorderRadius.circular(12)),
+              child: Row(children: [
+                const Icon(Icons.place, color: AppColors.green),
+                const SizedBox(width: 8),
+                Expanded(child: Text(s.t('atZone', {'zone': zone.name}), style: const TextStyle(fontWeight: FontWeight.w600))),
+              ]),
+            )
+          else if (cameraLocked)
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(color: const Color(0xFFFFF4D6), borderRadius: BorderRadius.circular(12)),
+              child: Row(children: [
+                const Icon(Icons.lock_outline, color: AppColors.turmeric),
+                const SizedBox(width: 8),
+                Expanded(child: Text(s.t('goToZone'))),
+              ]),
+            ),
           const SizedBox(height: 14),
           Wrap(spacing: 10, runSpacing: 10, children: [
             for (var i = 0; i < _photos.length; i++)
@@ -177,14 +225,15 @@ class _WorkerActivityScreenState extends State<WorkerActivityScreen> {
               ]),
             if (_photos.length < 3)
               InkWell(
-                onTap: _busy ? null : _takePhoto,
+                onTap: _busy || cameraLocked ? null : _takePhoto,
                 borderRadius: BorderRadius.circular(12),
                 child: Container(
                   width: 96,
                   height: 96,
-                  decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: AppColors.green, width: 1.5)),
+                  decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12), border: Border.all(color: cameraLocked ? AppColors.muted : AppColors.green, width: 1.5)),
                   child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                    const Icon(Icons.photo_camera, color: AppColors.green, size: 30),
+                    Icon(cameraLocked ? Icons.lock_outline : Icons.photo_camera, color: cameraLocked ? AppColors.muted : AppColors.green, size: 30),
                     Text(s.t('takePhoto'), textAlign: TextAlign.center, style: const TextStyle(color: AppColors.green, fontSize: 12)),
                   ]),
                 ),

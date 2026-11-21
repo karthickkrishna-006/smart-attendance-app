@@ -12,6 +12,7 @@ final zones = [
 ];
 
 void main() {
+  zoneVisitTests();
   test('walking the whole street ticks all 8 zones, each once', () {
     final t = ZoneTracker();
     var reached = 0;
@@ -48,5 +49,72 @@ void main() {
     expect(streetStatusToday([StreetVisitStatus.incomplete, StreetVisitStatus.completed]), StreetVisitStatus.completed);
     expect(streetStatusToday([StreetVisitStatus.incomplete, StreetVisitStatus.inProgress]), StreetVisitStatus.inProgress);
     expect(streetStatusToday([StreetVisitStatus.incomplete]), StreetVisitStatus.incomplete);
+  });
+}
+
+void zoneVisitTests() {
+  // Two zones 60 m apart; the worker cleans Zone 1 from 08:45 to 09:00,
+  // walks over, and cleans Zone 2 from 09:05.
+  final z1 = zones[0], z2 = CleaningZone(id: 'zB', streetFenceId: 'sriRamNagar', name: 'Zone 2', center: east(60), order: 1);
+  DateTime t(int h, int m, [int s = 0]) => DateTime(2026, 11, 22, h, m, s);
+  final both = [z1, z2];
+
+  test('zone check-in at arrival time, check-out at leaving time (08:45-09:00, then 09:05)', () {
+    final tr = ZoneVisitTracker();
+    final ev = <ZoneEvent>[];
+    for (var s = 0; s <= 15 * 60; s += 15) {
+      ev.addAll(tr.update(east(2), 8, t(8, 45).add(Duration(seconds: s)), both));
+    }
+    expect(ev.length, 1);
+    expect(ev.single.kind, ZoneEventKind.entered);
+    expect(ev.single.enteredAt, t(8, 45));
+    // Walk to Zone 2: away from Zone 1 from 09:00 on.
+    // Walking between the zones (40 m to the side of the street) until 09:05.
+    final between = GeoPoint2(east(30).lat + 40 / 111195.0, east(30).lng);
+    for (var s = 0; s < 5 * 60; s += 15) {
+      ev.addAll(tr.update(between, 8, t(9, 0).add(Duration(seconds: s)), both));
+    }
+    final exit = ev.firstWhere((e) => e.kind == ZoneEventKind.exited);
+    expect(exit.zone.id, z1.id);
+    expect(exit.exitedAt, t(9, 0));
+    expect(exit.duration, const Duration(minutes: 15));
+    for (var s = 0; s <= 60; s += 15) {
+      ev.addAll(tr.update(east(60), 8, t(9, 5).add(Duration(seconds: s)), both));
+    }
+    final second = ev.lastWhere((e) => e.kind == ZoneEventKind.entered);
+    expect(second.zone.id, 'zB');
+    expect(second.enteredAt, t(9, 5));
+  });
+
+  test('walking past a zone without stopping is not a check-in', () {
+    final tr = ZoneVisitTracker();
+    final ev = <ZoneEvent>[];
+    for (var s = 0; s <= 10; s += 5) {
+      ev.addAll(tr.update(east(1), 8, t(10, 0, s), both));
+    }
+    ev.addAll(tr.update(east(35), 8, t(10, 0, 15), both));
+    expect(ev, <ZoneEvent>[]);
+  });
+
+  test('a short GPS jump does not check out; weak GPS is ignored', () {
+    final tr = ZoneVisitTracker();
+    tr.update(east(0), 8, t(11, 0), both);
+    tr.update(east(0), 8, t(11, 0, 30), both);
+    expect(tr.current?.id, z1.id);
+    expect(tr.update(east(45), 8, t(11, 1), both), <ZoneEvent>[]); // 30 s away only
+    tr.update(east(0), 8, t(11, 1, 30), both);
+    expect(tr.update(east(45), 8, t(11, 3), both), <ZoneEvent>[]);
+    expect(tr.update(east(300), 80, t(11, 6), both), <ZoneEvent>[]); // weak GPS
+    expect(tr.current?.id, z1.id);
+  });
+
+  test('Stop duty or leaving the street closes the open zone', () {
+    final tr = ZoneVisitTracker();
+    tr.update(east(0), 8, t(12, 0), both);
+    tr.update(east(0), 8, t(12, 0, 25), both);
+    final e = tr.close(t(12, 20));
+    expect(e?.kind, ZoneEventKind.exited);
+    expect(e?.duration, const Duration(minutes: 20));
+    expect(tr.current, null);
   });
 }

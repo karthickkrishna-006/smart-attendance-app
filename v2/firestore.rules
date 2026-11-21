@@ -285,7 +285,8 @@ service cloud.firestore {
     match /config/{docId} {
       allow read: if signedIn();
       allow create, update: if isSysAdmin() && docId == 'app'
-        && incoming().keys().hasOnly(['openWorkerSignUp', 'supervisorsMayCreateTasks', 'collectorMayAssignTasks', 'auditId'])
+        && incoming().keys().hasOnly(['openWorkerSignUp', 'supervisorsMayCreateTasks', 'collectorMayAssignTasks', 'zonePhotoOnly', 'auditId'])
+        && incoming().get('zonePhotoOnly', false) is bool
         && incoming().get('openWorkerSignUp', false) is bool
         && incoming().get('supervisorsMayCreateTasks', false) is bool
         && incoming().get('collectorMayAssignTasks', false) is bool
@@ -687,6 +688,42 @@ service cloud.firestore {
     // visits/{id}: entry and exit of a street boundary, recorded automatically
     // while on duty. Officers in scope see them (including organisation
     // admins and auditors); the worker's app does not show them.
+    // ------------------------------------------------------------ zone visits
+    // Automatic check-in / check-out at each cleaning zone of a street (for
+    // example Sri Ram Nagar Zone 3, 08:45-09:00), with the proof photo report
+    // linked once. Same protections as street visits.
+    match /zoneVisits/{zoneVisitId} {
+      allow read: if (signedIn() && resource.data.get('uid', null) == uid())
+        || officerSees(resource.data)
+        || (isSysAdmin() && resource.data.get('synthetic', false) == true);
+      allow create: if (isSysAdmin() && demoRecord())
+        || (incoming().keys().hasOnly(['uid', 'workerName', 'date', 'orgId', 'areaPath', 'visitId', 'geofenceId', 'geofenceName',
+                                       'zoneId', 'zoneName', 'zoneOrder', 'enteredAt', 'exitedAt', 'durationMin',
+                                       'proofActivityId', 'createdAt', 'closedAt', 'synthetic'])
+          && ownWorkerRecord(incoming())
+          && incoming().date is string && isRecentIstDate(incoming().date)
+          && incoming().geofenceId is string && incoming().zoneId is string
+          && get(/databases/$(database)/documents/cleaningZones/$(incoming().zoneId)).data.streetFenceId == incoming().geofenceId
+          && incoming().areaPath == get(/databases/$(database)/documents/geofences/$(incoming().geofenceId)).data.areaPath
+          && assignment('worker').data.areaIds.hasAny(incoming().areaPath)
+          && incoming().enteredAt is timestamp
+          && incoming().exitedAt == null && incoming().durationMin == null && incoming().closedAt == null
+          && incoming().proofActivityId == null
+          && incoming().createdAt == request.time);
+      // Check-out once; the proof photo report linked once (the worker's own).
+      allow update: if signedIn() && resource.data.uid == uid()
+        && ((resource.data.exitedAt == null
+              && changed().hasOnly(['exitedAt', 'durationMin', 'closedAt'])
+              && incoming().exitedAt is timestamp && incoming().exitedAt >= resource.data.enteredAt
+              && incoming().durationMin is number && incoming().durationMin >= 0
+              && incoming().closedAt == request.time)
+          || (resource.data.proofActivityId == null
+              && changed().hasOnly(['proofActivityId'])
+              && incoming().proofActivityId is string
+              && get(/databases/$(database)/documents/activities/$(incoming().proofActivityId)).data.uid == uid()));
+      allow delete: if isSysAdmin() && resource.data.get('synthetic', false) == true;
+    }
+
     match /visits/{visitId} {
       allow read: if (signedIn() && resource.data.get('uid', null) == uid())
         || officerSees(resource.data)

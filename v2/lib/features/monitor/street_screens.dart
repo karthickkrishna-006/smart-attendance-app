@@ -50,6 +50,9 @@ class StreetVisitsScreen extends StatefulWidget {
 class _StreetVisitsScreenState extends State<StreetVisitsScreen> {
   DateTime _day = DateTime.now();
   late Stream<List<Map<String, dynamic>>> _stream = _watch();
+  late Stream<List<Map<String, dynamic>>> _zoneStream = _watchZones();
+  Stream<List<Map<String, dynamic>>> _watchZones() =>
+      watchScoped(widget.session, 'zoneVisits', day: dayKey(_day), sort: (a, b) => millisOf(a['enteredAt']).compareTo(millisOf(b['enteredAt'])));
   StreetVisitStatus? _filter;
 
   Stream<List<Map<String, dynamic>>> _watch() => watchScoped(widget.session, 'visits', day: dayKey(_day), sort: newestFirst('enteredAt'));
@@ -60,6 +63,7 @@ class _StreetVisitsScreenState extends State<StreetVisitsScreen> {
     setState(() {
       _day = next;
       _stream = _watch();
+      _zoneStream = _watchZones();
     });
   }
 
@@ -75,6 +79,13 @@ class _StreetVisitsScreenState extends State<StreetVisitsScreen> {
   Widget build(BuildContext context) {
     final isToday = dayKey(_day) == dayKey(DateTime.now());
     return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: _zoneStream,
+      builder: (context, zoneSnap) {
+        final zonesByVisit = <String, List<Map<String, dynamic>>>{};
+        for (final z in zoneSnap.data ?? const <Map<String, dynamic>>[]) {
+          zonesByVisit.putIfAbsent('${z['visitId']}', () => []).add(z);
+        }
+        return StreamBuilder<List<Map<String, dynamic>>>(
       stream: _stream,
       builder: (context, snap) {
         final all = snap.data ?? const <Map<String, dynamic>>[];
@@ -159,11 +170,31 @@ class _StreetVisitsScreenState extends State<StreetVisitsScreen> {
                       const SizedBox(height: 4),
                       Text('Cleaning zones: $done of $total', style: const TextStyle(color: AppColors.muted)),
                     ],
+                    // Zone timeline: automatic check-in / check-out per zone.
+                    for (final z in zonesByVisit['${v['id']}'] ?? const <Map<String, dynamic>>[])
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Row(children: [
+                          Icon(z['exitedAt'] == null ? Icons.radio_button_checked : Icons.check_circle,
+                              size: 16, color: z['exitedAt'] == null ? AppColors.turmeric : AppColors.success),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              '${z['zoneName'] ?? 'Zone ${(z['zoneOrder'] as num? ?? 0) + 1}'} · '
+                              '${z['exitedAt'] == null ? 'from ${_hm(z['enteredAt'])} (now there)' : '${_hm(z['enteredAt'])}–${_hm(z['exitedAt'])} (${z['durationMin']} min)'}',
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                          ),
+                          if (z['proofActivityId'] != null) const Icon(Icons.photo_camera, size: 16, color: AppColors.indigo),
+                        ]),
+                      ),
                   ]),
                 ),
               );
             }),
         ]);
+      },
+    );
       },
     );
   }
