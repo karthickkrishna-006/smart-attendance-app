@@ -59,6 +59,7 @@ class _MapplsMapState extends State<_MapplsMap> {
   String _staticKey = '';
   final _staticFills = <mp.Fill>[];
   final _staticLines = <mp.Line>[];
+  final _staticSymbols = <mp.Symbol>[];
   final _liveFills = <mp.Fill>[];
   final _liveLines = <mp.Line>[];
   final _liveSymbols = <mp.Symbol>[];
@@ -137,8 +138,8 @@ class _MapplsMapState extends State<_MapplsMap> {
       final v = widget.view;
       // Boundaries and cleaning zones: redrawn only when they change.
       final key = [
-        for (final a in v.areas) '${a.id}:${a.stroke.hashCode}:${a.fill.hashCode}:${a.ring.length}',
-        for (final d in v.dots) '${d.id}:${d.fill.hashCode}',
+        for (final a in v.areas) '${a.id}:${a.stroke.hashCode}:${a.fill.hashCode}:${a.ring.length}:${a.label}',
+        for (final d in v.dots) '${d.id}:${d.fill.hashCode}:${d.label}',
       ].join('|');
       if (key != _staticKey) {
         for (final f in _staticFills) {
@@ -147,8 +148,12 @@ class _MapplsMapState extends State<_MapplsMap> {
         for (final l in _staticLines) {
           await c.removeLine(l);
         }
+        for (final sy in _staticSymbols) {
+          await c.removeSymbol(sy);
+        }
         _staticFills.clear();
         _staticLines.clear();
+        _staticSymbols.clear();
         for (final a in v.areas) {
           final ring = a.ring.length >= 3
               ? [...a.ring, a.ring.first]
@@ -169,6 +174,17 @@ class _MapplsMapState extends State<_MapplsMap> {
             fillOpacity: d.fill.a,
             fillOutlineColor: _hex(d.stroke),
           )));
+        }
+        // Names of streets / areas and cleaning-zone numbers, written on the map.
+        for (final a in v.areas.where((a) => a.label != null && a.labelAt != null)) {
+          final img = 'lbl-${a.label.hashCode}-${_rgb(a.stroke)}';
+          if (_images.add(img)) await c.addImage(img, await labelPng(a.label!, a.stroke));
+          _staticSymbols.add(await c.addSymbol(mp.SymbolOptions(geometry: _ll(a.labelAt!), iconImage: img, iconSize: 0.34)));
+        }
+        for (final d in v.dots.where((d) => d.label != null)) {
+          final img = 'lbs-${d.label.hashCode}-${_rgb(d.stroke)}';
+          if (_images.add(img)) await c.addImage(img, await labelPng(d.label!, d.stroke, small: true));
+          _staticSymbols.add(await c.addSymbol(mp.SymbolOptions(geometry: _ll(d.at), iconImage: img, iconSize: 0.3)));
         }
         _staticKey = key;
       }

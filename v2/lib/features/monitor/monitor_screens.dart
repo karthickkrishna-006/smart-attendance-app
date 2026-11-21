@@ -73,7 +73,8 @@ LiveState _stateOf(Map<String, dynamic> p) =>
     liveStateOf(onDuty: p['onDuty'] == true, at: p['at'] is Timestamp ? (p['at'] as Timestamp).toDate() : null, now: DateTime.now());
 
 class LiveMonitoringScreen extends StatefulWidget {
-  const LiveMonitoringScreen({super.key, required this.session});
+  const LiveMonitoringScreen({super.key, required this.session, this.fullPage = false});
+  final bool fullPage;
   final SessionController session;
   @override
   State<LiveMonitoringScreen> createState() => _LiveMonitoringScreenState();
@@ -101,7 +102,10 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
   Timer? _ticker;
   bool _fitted = false;
   bool _showMe = false;
-  bool _fullScreen = false;
+  bool _filtersOpen = false;
+
+  /// The separate full-screen live map page (like a navigation app).
+  void _openFullMap() => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => LiveMapPage(session: widget.session)));
 
   @override
   void initState() {
@@ -359,6 +363,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                             radiusM: f.radiusM,
                             stroke: streetStatusColor(streetStatus[f.id]),
                             fill: streetStatusColor(streetStatus[f.id]).withValues(alpha: streetStatus[f.id] == null ? 0.06 : 0.22),
+                            label: f.name,
                           ),
                       ],
                       dots: [
@@ -369,6 +374,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                             radiusM: z.radiusM,
                             fill: zonesDoneToday.contains(z.id) ? AppColors.success.withValues(alpha: 0.55) : Colors.white.withValues(alpha: 0.7),
                             stroke: zonesDoneToday.contains(z.id) ? AppColors.success : AppColors.indigo,
+                            label: 'Z${z.order + 1}',
                           ),
                       ],
                       pins: [
@@ -389,8 +395,8 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                       right: 10,
                       top: kGoogleMaps ? 60 : 10,
                       child: Column(children: [
-                        _mapButton(_fullScreen ? Icons.fullscreen_exit : Icons.fullscreen, _fullScreen ? 'Exit full screen' : 'Full screen map',
-                            () => setState(() => _fullScreen = !_fullScreen), active: _fullScreen),
+                        _mapButton(widget.fullPage ? Icons.fullscreen_exit : Icons.fullscreen, widget.fullPage ? 'Close the map' : 'Open the full map',
+                            () => widget.fullPage ? Navigator.of(context).maybePop() : _openFullMap(), active: widget.fullPage),
                         const SizedBox(height: 8),
                         _mapButton(Icons.add, 'Zoom in', _map.zoomIn),
                         const SizedBox(height: 8),
@@ -566,30 +572,113 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                     ]),
                 ]);
 
-                // Full-screen map: nothing scrolls around it, so pinch-zoom
-                // and dragging go straight to the map (all map engines).
-                if (_fullScreen) {
-                  return Column(children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-                      child: Row(children: [
-                        Icon(Icons.circle, size: 10, color: _stateColor(LiveState.moving)),
-                        Text(' ${counts[LiveState.moving]}  ', style: const TextStyle(fontWeight: FontWeight.w700)),
-                        Icon(Icons.circle, size: 10, color: _stateColor(LiveState.stale)),
-                        Text(' ${counts[LiveState.stale]}  ', style: const TextStyle(fontWeight: FontWeight.w700)),
-                        Icon(Icons.circle, size: 10, color: _stateColor(LiveState.offDuty)),
-                        Text(' ${counts[LiveState.offDuty]}', style: const TextStyle(fontWeight: FontWeight.w700)),
-                        const Spacer(),
-                        TextButton.icon(
-                          onPressed: () => setState(() => _fullScreen = false),
-                          icon: const Icon(Icons.fullscreen_exit),
-                          label: const Text('Exit full screen'),
+                // The separate live map page: the map fills the screen and
+                // nothing scrolls around it, so moving and zooming go straight
+                // to the map (all map engines).
+                if (widget.fullPage) {
+                  return Stack(children: [
+                    Positioned.fill(child: map),
+                    Positioned(
+                      left: 10,
+                      top: 10,
+                      right: 70,
+                      child: Material(
+                        color: Colors.white.withValues(alpha: 0.96),
+                        elevation: 3,
+                        borderRadius: BorderRadius.circular(14),
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+                          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Row(children: [
+                              for (final st in LiveState.values) ...[
+                                Icon(Icons.circle, size: 10, color: _stateColor(st)),
+                                Text(' ${counts[st]}  ', style: const TextStyle(fontWeight: FontWeight.w700)),
+                              ],
+                              const Spacer(),
+                              TextButton.icon(
+                                style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                                onPressed: () => setState(() => _filtersOpen = !_filtersOpen),
+                                icon: Icon(_filtersOpen ? Icons.expand_less : Icons.tune, size: 18),
+                                label: Text(_filtersOpen ? 'Hide' : 'Filters'),
+                              ),
+                            ]),
+                            if (_filtersOpen) Padding(padding: const EdgeInsets.only(top: 6, bottom: 4), child: filters),
+                          ]),
                         ),
-                      ]),
+                      ),
                     ),
-                    Expanded(child: map),
+                    if (people.isNotEmpty)
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 14,
+                        height: 96,
+                        child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 10), children: [
+                          for (final p in people)
+                            Container(
+                              width: 230,
+                              margin: const EdgeInsets.only(right: 8),
+                              child: Material(
+                                color: Colors.white,
+                                elevation: 3,
+                                borderRadius: BorderRadius.circular(14),
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(14),
+                                  onTap: () => _select(p, visits, whereBy[p['uid']] ?? ''),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(10),
+                                    child: Row(children: [
+                                      CircleAvatar(
+                                        radius: 18,
+                                        backgroundColor: _stateColor(_stateOf(p)),
+                                        child: Text(initialsOf('${p['workerName'] ?? ''}'),
+                                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12)),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                          Text('${p['workerName'] ?? ''}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700)),
+                                          Text('${whereBy[p['uid']]}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: AppColors.muted)),
+                                          Text('${_stateLabel(_stateOf(p)).split(' (').first} · ${_ago(p['at'])}',
+                                              style: TextStyle(fontSize: 12, color: _stateColor(_stateOf(p)), fontWeight: FontWeight.w600)),
+                                        ]),
+                                      ),
+                                    ]),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ]),
+                      ),
                   ]);
                 }
+
+                // On this page the map is a preview: tap it to open the full map.
+                final preview = Stack(children: [
+                  AbsorbPointer(child: map),
+                  Positioned.fill(
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(borderRadius: BorderRadius.circular(16), onTap: _openFullMap),
+                    ),
+                  ),
+                  Positioned(
+                    left: 10,
+                    bottom: 10,
+                    child: IgnorePointer(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(color: AppColors.green, borderRadius: BorderRadius.circular(20)),
+                        child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                          Icon(Icons.open_in_full, size: 16, color: Colors.white),
+                          SizedBox(width: 6),
+                          Text('Tap to open the live map', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                        ]),
+                      ),
+                    ),
+                  ),
+                ]);
+
                 return LayoutBuilder(builder: (context, box) {
                   final wide = box.maxWidth >= 900;
                   final header = <Widget>[
@@ -620,7 +709,7 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
                   }
                   return ListView(padding: const EdgeInsets.all(12), children: [
                     ...header,
-                    SizedBox(height: 380, child: map),
+                    SizedBox(height: 300, child: preview),
                     const SizedBox(height: 10),
                     summary,
                     const SizedBox(height: 10),
@@ -822,4 +911,21 @@ class _ReportsScreenState extends State<ReportsScreen> {
       },
     );
   }
+}
+
+/// The live map as its own screen: opened by tapping the map on Live
+/// monitoring. Workers, streets, zones and controls, with nothing around
+/// the map that could take over moving or zooming.
+class LiveMapPage extends StatelessWidget {
+  const LiveMapPage({super.key, required this.session});
+  final SessionController session;
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(
+          backgroundColor: AppColors.green,
+          foregroundColor: Colors.white,
+          title: const Text('Live map', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+        ),
+        body: LiveMonitoringScreen(session: session, fullPage: true),
+      );
 }

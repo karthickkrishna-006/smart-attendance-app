@@ -163,11 +163,12 @@ class _BoundariesMapPageState extends State<BoundariesMapPage> {
                           stroke: inside?.fence.id == f.id && inside!.result.placement != Placement.outside ? AppColors.success : AppColors.indigo,
                           fill: (inside?.fence.id == f.id && inside!.result.placement != Placement.outside ? AppColors.success : AppColors.indigo)
                               .withValues(alpha: 0.12),
+                          label: f.name,
                         ),
                     ],
                     dots: [
                       for (final z in _zones.values.expand((l) => l))
-                        MapDot(id: z.id, at: z.center, radiusM: z.radiusM, fill: Colors.white.withValues(alpha: 0.6), stroke: AppColors.indigo),
+                        MapDot(id: z.id, at: z.center, radiusM: z.radiusM, fill: Colors.white.withValues(alpha: 0.6), stroke: AppColors.indigo, label: 'Z${z.order + 1}'),
                     ],
                   ),
                   Positioned(

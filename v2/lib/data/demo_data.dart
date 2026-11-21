@@ -332,6 +332,91 @@ class DemoData {
     return writes.length;
   }
 
+  /// Demonstration ids: demo-... (first demo) and smp-... (sample district).
+  static bool isDemoId(String id) => id.startsWith('demo-') || id.startsWith('smp-');
+
+  static List<String> _pathOf(Map<String, dynamic> m, String field) =>
+      ((m[field] as List?) ?? const []).whereType<String>().toList();
+
+  Future<void> _deleteAll(String step, List<DocumentReference<Map<String, dynamic>>> refs) async {
+    for (var i = 0; i < refs.length; i += 400) {
+      final batch = db.batch();
+      for (final r in refs.skip(i).take(400)) {
+        batch.delete(r);
+      }
+      await _step(step, batch.commit);
+    }
+  }
+
+  /// Removes ALL demonstration and sample data: activity records, cleaning
+  /// zones, boundaries and areas (demo district, sample block, zones,
+  /// panchayats, habitations, streets), and takes those areas off people's
+  /// roles. Real areas and real records are never touched (the security rules
+  /// allow deleting demo-/smp- data only). Leaves a real "Chengalpattu"
+  /// district if no district remains.
+  Future<String> removeEverything({void Function(String)? progress}) async {
+    progress?.call('Activity records');
+    final records = await _step('Removing sample activity records', clear);
+
+    progress?.call('Reading areas and boundaries');
+    final areas = (await _step('Reading areas', () => db.collection('areas').get())).docs.where((d) {
+      final path = _pathOf(d.data(), 'path');
+      return isDemoId(d.id) || (path.isNotEmpty && isDemoId(path.first));
+    }).toList();
+    final areaIds = {for (final d in areas) d.id};
+    final fences = (await _step('Reading boundaries', () => db.collection('geofences').get())).docs.where((d) {
+      final path = _pathOf(d.data(), 'areaPath');
+      return isDemoId(d.id) || (path.isNotEmpty && isDemoId(path.first));
+    }).toList();
+    final fenceIds = {for (final d in fences) d.id};
+    final zones = (await _step('Reading cleaning zones', () => db.collection('cleaningZones').get()))
+        .docs
+        .where((d) => isDemoId(d.id) || fenceIds.contains(d.data()['streetFenceId']))
+        .toList();
+
+    progress?.call('Cleaning zones (${zones.length})');
+    await _deleteAll('Removing cleaning zones', [for (final d in zones) d.reference]);
+    progress?.call('Boundaries (${fences.length})');
+    await _deleteAll('Removing boundaries', [for (final d in fences) d.reference]);
+
+    // People whose roles point to removed areas keep their roles, without
+    // those areas (an officer with no area left sees a notice to assign one).
+    progress?.call('Roles');
+    final roles = (await _step('Reading roles', () => db.collection('roleAssignments').get())).docs;
+    final roleWrites = <void Function(AuditedBatch)>[];
+    for (final r in roles) {
+      final ids = _pathOf(r.data(), 'areaIds');
+      if (!ids.any(areaIds.contains)) continue;
+      final keep = [for (final x in ids) if (!areaIds.contains(x)) x];
+      roleWrites.add((b) => b.batch.update(r.reference, {
+            'areaIds': keep,
+            ...b.stamp('role_demo_areas_removed', 'roleAssignments/${r.id}'),
+          }));
+    }
+    await _audited('Updating roles', roleWrites);
+
+    // Areas: deepest first (streets before habitations before panchayats …).
+    progress?.call('Areas (${areas.length})');
+    areas.sort((a, b) => _pathOf(b.data(), 'path').length.compareTo(_pathOf(a.data(), 'path').length));
+    await _deleteAll('Removing areas', [for (final d in areas) d.reference]);
+
+    // A real district to build on.
+    final districts = await db.collection('areas').where('level', isEqualTo: 'district').limit(1).get();
+    var created = '';
+    if (districts.docs.isEmpty) {
+      final ref = db.collection('areas').doc();
+      await _audited('Creating the Chengalpattu district', [
+        (b) => b.batch.set(ref, {
+              'name': 'Chengalpattu', 'level': 'district', 'parentId': null, 'path': [ref.id], 'provisional': false,
+              ...b.stamp('district_created', 'areas/${ref.id}'),
+            }),
+      ]);
+      created = ' Created the district "Chengalpattu" to add your real blocks, panchayats and streets under.';
+    }
+    return 'Removed all demo and sample data: $records activity records, ${zones.length} cleaning zones, '
+        '${fences.length} boundaries, ${areas.length} areas; updated ${roleWrites.length} role(s).$created';
+  }
+
   /// Removes the synthetic activity records. Sample areas, boundaries and
   /// cleaning zones stay (areas cannot be deleted; names say "sample").
   Future<int> clear() async {

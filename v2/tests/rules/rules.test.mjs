@@ -737,3 +737,21 @@ test('demonstration simulation: the administrator may update synthetic visits on
   await assertFails(updateDoc(doc(a, 'visits/sim1'), { synthetic: false }));                   // cannot turn demo into "real"
   await assertFails(updateDoc(doc(as('w1', 'w1@x.in').db, 'visits/sim1'), { zonesDone: ['z2'], synthetic: true }));
 });
+
+test('removing demo / sample data: only demo- / smp- areas and boundaries, only by the administrator', async () => {
+  await seed('areas/demo-district', { name: 'Demo District', level: 'district', parentId: null, path: ['demo-district'] });
+  await seed('areas/smp-block', { name: 'Sample block', level: 'block', parentId: 'demo-district', path: ['demo-district', 'smp-block'] });
+  await seed('areas/realUnderDemo', { name: 'Test Habitation', level: 'habitation', parentId: 'demo-district', path: ['demo-district', 'realUnderDemo'] });
+  await seed('geofences/demo-fence-1', { name: 'Demo street', areaId: 'demo-district', areaPath: ['demo-district'], kind: 'circle' });
+  await seed('geofences/realFenceUnderDemo', { name: 'Test street', areaId: 'realUnderDemo', areaPath: ['demo-district', 'realUnderDemo'], kind: 'circle' });
+  await seed('geofences/realFence', { name: 'Real street', areaId: 'b1', areaPath: ['d1', 'b1'], kind: 'circle' });
+  const a = admin().db;
+  await assertFails(deleteDoc(doc(as('col', 'col@x.in').db, 'areas/smp-block')));       // only the administrator
+  await assertFails(deleteDoc(doc(a, 'areas/b1')));                                    // a real area: never
+  await assertFails(deleteDoc(doc(a, 'geofences/realFence')));                         // a real boundary: never
+  await assertSucceeds(deleteDoc(doc(a, 'geofences/demo-fence-1')));
+  await assertSucceeds(deleteDoc(doc(a, 'geofences/realFenceUnderDemo')));             // inside the demo district
+  await assertSucceeds(deleteDoc(doc(a, 'areas/realUnderDemo')));
+  await assertSucceeds(deleteDoc(doc(a, 'areas/smp-block')));
+  await assertSucceeds(deleteDoc(doc(a, 'areas/demo-district')));
+});

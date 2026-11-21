@@ -23,8 +23,18 @@ const bool kMappls = bool.fromEnvironment('MAPPLS');
 const _meBlue = Color(0xFF1A73E8);
 
 class MapArea {
-  const MapArea({required this.id, this.ring = const [], this.center, this.radiusM, required this.stroke, required this.fill});
+  const MapArea({required this.id, this.ring = const [], this.center, this.radiusM, required this.stroke, required this.fill, this.label});
   final String id;
+
+  /// Name written on the map at the area's centre (street, habitation …).
+  final String? label;
+
+  GeoPoint2? get labelAt {
+    if (center != null) return center;
+    final pts = ring.length > 1 && ring.first.lat == ring.last.lat && ring.first.lng == ring.last.lng ? ring.sublist(1) : ring;
+    if (pts.isEmpty) return null;
+    return GeoPoint2(pts.map((p) => p.lat).reduce((a, b) => a + b) / pts.length, pts.map((p) => p.lng).reduce((a, b) => a + b) / pts.length);
+  }
   final List<GeoPoint2> ring;
   final GeoPoint2? center;
   final double? radiusM;
@@ -33,8 +43,11 @@ class MapArea {
 }
 
 class MapDot {
-  const MapDot({required this.id, required this.at, required this.radiusM, required this.fill, required this.stroke});
+  const MapDot({required this.id, required this.at, required this.radiusM, required this.fill, required this.stroke, this.label});
   final String id;
+
+  /// Short label (for example "Z3" for cleaning zone 3).
+  final String? label;
   final GeoPoint2 at;
   final double radiusM;
   final Color fill;
@@ -137,6 +150,32 @@ class LiveMapView extends StatelessWidget {
   }
 }
 
+/// Draws a map label (white box, coloured border, dark text) as PNG bytes.
+Future<Uint8List> labelPng(String text, Color border, {bool small = false}) async {
+  final tp = TextPainter(
+    text: TextSpan(
+      text: text,
+      style: TextStyle(color: const Color(0xFF1C2321), fontSize: small ? 22 : 28, fontWeight: FontWeight.w700),
+    ),
+    textDirection: TextDirection.ltr,
+    maxLines: 1,
+    ellipsis: '…',
+  )..layout(maxWidth: 520);
+  final w = tp.width + 28, h = tp.height + 14;
+  final rec = ui.PictureRecorder();
+  final c = Canvas(rec);
+  final r = RRect.fromRectAndRadius(Rect.fromLTWH(2, 2, w - 4, h - 4), const Radius.circular(10));
+  c.drawRRect(r, Paint()..color = Colors.white.withValues(alpha: 0.94));
+  c.drawRRect(r, Paint()
+    ..color = border
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 4);
+  tp.paint(c, Offset((w - tp.width) / 2, (h - tp.height) / 2));
+  final img = await rec.endRecording().toImage(w.ceil(), h.ceil());
+  final data = await img.toByteData(format: ui.ImageByteFormat.png);
+  return data!.buffer.asUint8List();
+}
+
 /// Draws an initials pin (circle with a white ring and a point) as PNG bytes.
 Future<Uint8List> pinPng(String initials, Color color, bool selected) async {
   const w = 96.0, h = 116.0, r = 38.0;
@@ -196,6 +235,33 @@ class _GoogleMapState extends State<_GoogleMap> {
     };
   }
 
+  final _labelIcons = <String, gm.BitmapDescriptor>{};
+
+  String _labelKey(String text, Color c, bool small) => 'L|$text|${c.hashCode}|$small';
+
+  void _ensureLabels() {
+    final v = widget.view;
+    final wanted = [
+      for (final a in v.areas)
+        if (a.label != null && a.labelAt != null) (a.label!, a.stroke, false),
+      for (final d in v.dots)
+        if (d.label != null) (d.label!, d.stroke, true),
+    ];
+    for (final (text, color, small) in wanted) {
+      final k = _labelKey(text, color, small);
+      if (_labelIcons.containsKey(k) || _pending.contains(k)) continue;
+      _pending.add(k);
+      labelPng(text, color, small: small).then((png) async {
+        final img = await decodeImageFromList(png);
+        if (!mounted) return;
+        setState(() {
+          _labelIcons[k] = gm.BitmapDescriptor.bytes(png, width: img.width / 3);
+          _pending.remove(k);
+        });
+      });
+    }
+  }
+
   /// Avatar pins are drawn once per (initials, colour, selected) and cached.
   void _ensureIcons() {
     for (final p in widget.view.pins) {
@@ -222,6 +288,7 @@ class _GoogleMapState extends State<_GoogleMap> {
   Widget build(BuildContext context) {
     final v = widget.view;
     _ensureIcons();
+    _ensureLabels();
     return Stack(children: [
       gm.GoogleMap(
         initialCameraPosition: gm.CameraPosition(target: _ll(v.center), zoom: v.zoom),
@@ -257,6 +324,23 @@ class _GoogleMapState extends State<_GoogleMap> {
             gm.Polyline(polylineId: const gm.PolylineId('route'), points: [for (final p in v.route) _ll(p)], color: AppColors.indigo, width: 6),
         },
         markers: {
+          for (final a in v.areas)
+            if (a.label != null && a.labelAt != null && _labelIcons.containsKey(_labelKey(a.label!, a.stroke, false)))
+              gm.Marker(
+                markerId: gm.MarkerId('label-${a.id}'),
+                position: _ll(a.labelAt!),
+                icon: _labelIcons[_labelKey(a.label!, a.stroke, false)]!,
+                anchor: const Offset(0.5, 0.5),
+                consumeTapEvents: false,
+              ),
+          for (final d in v.dots)
+            if (d.label != null && _labelIcons.containsKey(_labelKey(d.label!, d.stroke, true)))
+              gm.Marker(
+                markerId: gm.MarkerId('label-${d.id}'),
+                position: _ll(d.at),
+                icon: _labelIcons[_labelKey(d.label!, d.stroke, true)]!,
+                anchor: const Offset(0.5, 0.5),
+              ),
           for (final p in v.pins)
             gm.Marker(
               markerId: gm.MarkerId(p.id),
@@ -347,6 +431,17 @@ class _OsmMapState extends State<_OsmMap> {
             if (v.route.length > 1) fm.Polyline(points: [for (final p in v.route) _ll(p)], strokeWidth: 5, color: AppColors.indigo),
           ]),
           fm.MarkerLayer(markers: [
+            for (final a in v.areas)
+              if (a.label != null && a.labelAt != null)
+                fm.Marker(
+                  point: _ll(a.labelAt!),
+                  width: 160,
+                  height: 28,
+                  child: Center(child: _OsmLabel(text: a.label!, border: a.stroke)),
+                ),
+            for (final d in v.dots)
+              if (d.label != null)
+                fm.Marker(point: _ll(d.at), width: 44, height: 22, child: Center(child: _OsmLabel(text: d.label!, border: d.stroke, small: true))),
             if (v.me != null)
               fm.Marker(
                 point: _ll(v.me!),
@@ -397,4 +492,21 @@ class _OsmMapState extends State<_OsmMap> {
       const Positioned(right: 6, bottom: 4, child: Text('© OpenStreetMap', style: TextStyle(fontSize: 10, color: AppColors.muted))),
     ]);
   }
+}
+
+class _OsmLabel extends StatelessWidget {
+  const _OsmLabel({required this.text, required this.border, this.small = false});
+  final String text;
+  final Color border;
+  final bool small;
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: EdgeInsets.symmetric(horizontal: small ? 4 : 7, vertical: 2),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.94),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: border, width: 1.5),
+        ),
+        child: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: small ? 10 : 11.5, fontWeight: FontWeight.w700, color: const Color(0xFF1C2321))),
+      );
 }

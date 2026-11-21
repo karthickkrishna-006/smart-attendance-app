@@ -234,6 +234,12 @@ service cloud.firestore {
     }
 
     // ------------------------------------------------------------ master data
+    // Demonstration / sample records: ids demo-... (first demo) and smp-...
+    // (sample district).
+    function isDemoId(id) {
+      return id.matches('(demo|smp)-.*');
+    }
+
     match /areas/{areaId} {
       allow read: if signedIn();
       // The path runs from the district down to this node; a child's path is
@@ -249,7 +255,10 @@ service cloud.firestore {
               && incoming().parentId is string
               && incoming()['path'] == get(/databases/$(database)/documents/areas/$(incoming().parentId)).data['path'].concat([areaId])))
         && audited('areas/' + areaId);
-      allow delete: if false;
+      // Only demonstration data may be removed: an id starting demo- or smp-,
+      // or anything inside a demo/sample top-level area. Real ones stay.
+      allow delete: if isSysAdmin()
+        && (isDemoId(areaId) || isDemoId(string(resource.data.get('path', [''])[0])));
     }
 
     match /organisations/{orgId} {
@@ -376,7 +385,10 @@ service cloud.firestore {
               && incoming().ring is list && incoming().ring.size() >= 3 && incoming().ring.size() <= 1000
               && !('center' in incoming()) && !('radiusM' in incoming())))
         && audited('geofences/' + fenceId);
-      allow delete: if false;
+      // Only demonstration data may be removed: an id starting demo- or smp-,
+      // or anything inside a demo/sample top-level area. Real ones stay.
+      allow delete: if isSysAdmin()
+        && (isDemoId(fenceId) || isDemoId(string(resource.data.get('areaPath', [''])[0])));
     }
 
     // ------------------------------------------------------------ attendance

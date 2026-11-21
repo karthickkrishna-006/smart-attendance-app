@@ -42,6 +42,51 @@ class _DemoTabState extends State<DemoTab> {
     }
 
     return ListView(padding: const EdgeInsets.all(16), children: [
+      Card(
+        color: const Color(0xFFFDECEC),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            const Text('Start with real data', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 6),
+            const Text('Removes everything made for demonstrations: Demo District, Demo Block, the sample Thirukazhukundram block, '
+                'Zone A / Zone B, sample panchayats, habitations and streets, their boundaries and cleaning zones, and all sample '
+                'workers, positions and records. Real people, real areas and real records are not touched.',
+                style: TextStyle(height: 1.35)),
+            const SizedBox(height: 10),
+            FilledButton.icon(
+              style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+              onPressed: _busy
+                  ? null
+                  : () async {
+                      final ok = await showDialog<bool>(
+                        context: context,
+                        builder: (c) => AlertDialog(
+                          title: const Text('Remove all demo and sample data?'),
+                          content: const Text('All demo and sample areas, streets, boundaries, cleaning zones and sample records are '
+                              'deleted. People whose roles used those areas keep their roles without them: give them real areas '
+                              'in Setup → Access afterwards. This cannot be undone.'),
+                          actions: [
+                            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
+                            FilledButton(
+                              style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+                              onPressed: () => Navigator.pop(c, true),
+                              child: const Text('Remove'),
+                            ),
+                          ],
+                        ),
+                      );
+                      if (ok != true) return;
+                      if (LiveSimulation.instance.running) await LiveSimulation.instance.stop();
+                      await _run(() => demo.removeEverything(progress: progress));
+                    },
+              icon: const Icon(Icons.delete_forever),
+              label: const Text('Remove ALL demo and sample data'),
+            ),
+          ]),
+        ),
+      ),
+      const SizedBox(height: 16),
       const Card(
         child: Padding(
           padding: EdgeInsets.all(16),
