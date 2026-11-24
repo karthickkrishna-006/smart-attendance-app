@@ -789,3 +789,21 @@ test('settings: camera-only-inside-a-zone switch is a yes/no set by the administ
   await assertFails(save(a, { zonePhotoOnly: 'yes' }));
   await assertFails(save(as('col', 'col@x.in'), { zonePhotoOnly: false }));
 });
+
+test('VP Secretaries (supervisors) map streets, street boundaries and cleaning zones in their own areas only', async () => {
+  const sup = as('sup1', 'sup1@x.in');                  // supervisor of b1
+  const write = (who, path, data) => { const b = writeBatch(who.db); b.set(doc(who.db, path), { ...data, auditId: audit(b, who, path) }); return b.commit(); };
+  const street = { name: 'Sri Ram Nagar', level: 'location', parentId: 'b1', path: ['d1', 'b1', 'st1'], provisional: true };
+  await assertFails(write(sup, 'areas/p9', { name: 'New panchayat', level: 'panchayat', parentId: 'b1', path: ['d1', 'b1', 'p9'], provisional: true })); // streets only
+  await assertFails(write(sup, 'areas/st2', { ...street, parentId: 'b2', path: ['d1', 'b2', 'st2'] }));                // not their area
+  await assertFails(write(as('w1', 'w1@x.in'), 'areas/st1', street));                                                   // workers: no
+  await assertSucceeds(write(sup, 'areas/st1', street));
+  const ring = [new GeoPoint(12.690, 79.970), new GeoPoint(12.691, 79.970), new GeoPoint(12.691, 79.972), new GeoPoint(12.690, 79.972)];
+  await assertFails(write(sup, 'geofences/fb1', { name: 'Block boundary', areaId: 'b1', areaPath: ['d1', 'b1'], kind: 'polygon', ring, provisional: true })); // official boundary: admin only
+  await assertSucceeds(write(sup, 'geofences/fst1', { name: 'Sri Ram Nagar', areaId: 'st1', areaPath: ['d1', 'b1', 'st1'], kind: 'polygon', ring, provisional: true }));
+  const zone = { name: 'Sri Ram Nagar Zone 1', streetFenceId: 'fst1', areaPath: ['d1', 'b1', 'st1'], center: new GeoPoint(12.6905, 79.971), radiusM: 20, order: 0 };
+  await assertSucceeds(write(sup, 'cleaningZones/zs1', zone));
+  await assertFails(write(as('sup2', 'sup2@x.in'), 'cleaningZones/zs2', zone));                                        // another panchayat's supervisor
+  await assertFails(deleteDoc(doc(as('sup2', 'sup2@x.in').db, 'cleaningZones/zs1')));
+  await assertSucceeds(deleteDoc(doc(sup.db, 'cleaningZones/zs1')));
+});

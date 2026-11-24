@@ -234,6 +234,11 @@ service cloud.firestore {
     }
 
     // ------------------------------------------------------------ master data
+    // VP Secretaries / MNPs (supervisors) map the streets of their own areas.
+    function mapsStreetsAt(path) {
+      return coversPath('supervisor', path);
+    }
+
     // Demonstration / sample records: ids demo-... (first demo) and smp-...
     // (sample district).
     function isDemoId(id) {
@@ -244,7 +249,11 @@ service cloud.firestore {
       allow read: if signedIn();
       // The path runs from the district down to this node; a child's path is
       // its parent's path plus its own id, so scope checks stay consistent.
-      allow create, update: if isSysAdmin()
+      // The administrator: any area. VP Secretaries (supervisors): streets
+      // (level "location") inside their own assigned areas only.
+      allow create, update: if (isSysAdmin()
+          || (incoming().level == 'location' && mapsStreetsAt(incoming()['path'])
+              && (resource == null || resource.data.level == 'location')))
         && incoming().keys().hasOnly(['name', 'level', 'parentId', 'path', 'provisional', 'auditId'])
         && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 120
         && incoming().level in ['district', 'block', 'zone', 'panchayat', 'habitation', 'location']
@@ -372,7 +381,12 @@ service cloud.firestore {
     // area path is copied so attendance inside it carries the same scope.
     match /geofences/{fenceId} {
       allow read: if accountActive();
-      allow create, update: if isSysAdmin()
+      // The administrator: any boundary. VP Secretaries: street boundaries
+      // inside their own areas (official area boundaries stay with the admin).
+      allow create, update: if (isSysAdmin()
+          || (mapsStreetsAt(incoming().areaPath)
+              && get(/databases/$(database)/documents/areas/$(incoming().areaId)).data.level == 'location'
+              && (resource == null || mapsStreetsAt(resource.data.areaPath))))
         && incoming().keys().hasOnly(['name', 'areaId', 'areaPath', 'kind', 'center', 'radiusM', 'ring', 'provisional', 'auditId'])
         && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 120
         && incoming().areaId is string
@@ -839,7 +853,7 @@ service cloud.firestore {
     // Points inside a street the worker must reach (e.g. Sri Ram Nagar Zone 1-8).
     match /cleaningZones/{zoneId} {
       allow read: if accountActive();
-      allow create, update: if isSysAdmin()
+      allow create, update: if (isSysAdmin() || mapsStreetsAt(incoming().areaPath))
         && incoming().keys().hasOnly(['name', 'streetFenceId', 'areaPath', 'center', 'radiusM', 'order', 'auditId'])
         && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 80
         && incoming().streetFenceId is string
@@ -848,7 +862,7 @@ service cloud.firestore {
         && incoming().radiusM is number && incoming().radiusM >= 10 && incoming().radiusM <= 100
         && incoming().order is int
         && audited('cleaningZones/' + zoneId);
-      allow delete: if isSysAdmin();
+      allow delete: if isSysAdmin() || mapsStreetsAt(resource.data.areaPath);
     }
 
     // Everything else is closed.

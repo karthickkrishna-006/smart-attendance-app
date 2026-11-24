@@ -13,6 +13,7 @@ final zones = [
 
 void main() {
   zoneVisitTests();
+  stripTests();
   test('walking the whole street ticks all 8 zones, each once', () {
     final t = ZoneTracker();
     var reached = 0;
@@ -116,5 +117,31 @@ void zoneVisitTests() {
     expect(e?.kind, ZoneEventKind.exited);
     expect(e?.duration, const Duration(minutes: 20));
     expect(tr.current, null);
+  });
+}
+
+void stripTests() {
+  GeoPoint2 north(GeoPoint2 p, double m) => GeoPoint2(p.lat + m / 111195.0, p.lng);
+  test('a street drawn with 2 taps becomes a 4-corner strip, 25 m each side, 10 m past the ends', () {
+    final ring = streetStripRing([start, east(200)]);
+    expect(ring.length, 4);
+    expect(pointInPolygon(east(100), ring), true);            // on the street
+    expect(pointInPolygon(north(east(100), 20), ring), true); // 20 m to the side
+    expect(pointInPolygon(north(east(100), 30), ring), false); // 30 m to the side
+    expect(pointInPolygon(east(-8), ring), true);              // just before the start
+    expect(pointInPolygon(east(-15), ring), false);
+  });
+  test('a street with a bend follows the bend', () {
+    final corner = east(150);
+    final ring = streetStripRing([start, corner, north(corner, 150)]);
+    expect(ring.length, 6);
+    expect(pointInPolygon(east(75), ring), true);
+    expect(pointInPolygon(north(corner, 75), ring), true);
+    expect(pointInPolygon(north(east(75), 60), ring), false);  // inside the bend, but away from both arms
+  });
+  test('repeated taps on the same spot are ignored; one point is not a street', () {
+    expect(streetStripRing([start, start, east(100)]).length, 4);
+    expect(streetStripRing([start]), <GeoPoint2>[]);
+    expect(streetStripRing([start, start]), <GeoPoint2>[]);
   });
 }

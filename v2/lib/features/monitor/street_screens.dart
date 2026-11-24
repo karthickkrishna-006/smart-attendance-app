@@ -7,6 +7,7 @@ import '../../app/theme.dart';
 import '../../app/ui.dart';
 import '../../data/scoped.dart';
 import '../../data/session_controller.dart';
+import '../../data/my_location.dart';
 import '../../data/street_zones_repo.dart';
 import '../../domain/attendance.dart';
 import '../../domain/geo.dart';
@@ -215,6 +216,37 @@ class _CleaningZonesPageState extends State<CleaningZonesPage> {
   bool _saving = false;
 
   final _map = LiveMapController();
+  final _me = MyLocation.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    _me.addListener(_onMove);
+    _me.acquire().catchError((Object e) => showToast('$e', kind: ToastKind.error));
+  }
+
+  @override
+  void dispose() {
+    _me.removeListener(_onMove);
+    _me.release();
+    super.dispose();
+  }
+
+  void _onMove() {
+    if (mounted) setState(() {});
+  }
+
+  /// Stand at the bin / garbage point and mark the zone exactly there.
+  Future<void> _addHere(int count) async {
+    final at = _me.at;
+    if (at == null) {
+      showToast('Your location is not known yet.', kind: ToastKind.error);
+      return;
+    }
+    final acc = _me.accuracyM ?? 999;
+    if (acc > 25) showToast('GPS is weak here (±${acc.round()} m). The zone is added; check it on the map.');
+    await _add(at, count);
+  }
 
   GeoPoint2 get _centre => widget.street.kind == GeofenceKind.circle
       ? widget.street.center!
@@ -256,7 +288,7 @@ class _CleaningZonesPageState extends State<CleaningZonesPage> {
             return Column(children: [
               const Padding(
                 padding: EdgeInsets.all(12),
-                child: Text('Tap inside the street to add a cleaning zone (25 m circle). '
+                child: Text('Tap inside the street to add a cleaning zone (25 m circle), or stand at the bin and press "Add zone here". '
                     'The worker\'s zones are ticked automatically when they reach each one.', style: TextStyle(color: AppColors.muted)),
               ),
               SizedBox(
@@ -265,6 +297,8 @@ class _CleaningZonesPageState extends State<CleaningZonesPage> {
                   center: _centre,
                   zoom: 17,
                   controller: _map,
+                  me: _me.at,
+                  meAccuracyM: _me.accuracyM,
                   onMapTap: (p) => _saving ? null : _add(p, zones.length),
                   areas: [
                     MapArea(
@@ -286,6 +320,12 @@ class _CleaningZonesPageState extends State<CleaningZonesPage> {
                 padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
                 child: Row(children: [
                   Text('${zones.length} cleaning zone(s)', style: const TextStyle(fontWeight: FontWeight.w700)),
+                  const Spacer(),
+                  FilledButton.icon(
+                    onPressed: _saving || _me.at == null ? null : () => _addHere(zones.length),
+                    icon: const Icon(Icons.add_location_alt),
+                    label: const Text('Add zone here'),
+                  ),
                   if (_saving) const Padding(padding: EdgeInsets.only(left: 10), child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))),
                 ]),
               ),

@@ -10,6 +10,7 @@ import '../../data/session_controller.dart';
 import '../../domain/area.dart';
 import '../../domain/designations.dart';
 import '../../domain/geo.dart';
+import '../../domain/street_zones.dart' show streetStripRing;
 import '../../domain/roles.dart';
 import '../monitor/live_map_view.dart';
 import '../work/worker_work_screens.dart' show shortDateTime;
@@ -152,6 +153,12 @@ class _BoundaryDrawPageState extends State<BoundaryDrawPage> {
   final _me = MyLocation.instance;
   bool _saving = false;
 
+  /// Streets: tap along the street and the boundary is a strip around it.
+  late bool _alongStreet = widget.area.level == AreaLevel.location;
+  double _halfWidth = 25;
+
+  List<GeoPoint2> get _ring => _alongStreet ? streetStripRing(_points, halfWidthM: _halfWidth) : List.of(_points);
+
   @override
   void initState() {
     super.initState();
@@ -192,15 +199,15 @@ class _BoundaryDrawPageState extends State<BoundaryDrawPage> {
   }
 
   Future<void> _save() async {
-    if (_points.length < 3) {
-      showToast('Tap at least 3 corners of the boundary.', kind: ToastKind.error);
+    if (_alongStreet ? _points.length < 2 : _points.length < 3) {
+      showToast(_alongStreet ? 'Tap at least 2 points along the street.' : 'Tap at least 3 corners of the boundary.', kind: ToastKind.error);
       return;
     }
     setState(() => _saving = true);
     try {
       await widget.dir.addPolygonGeofences(
         area: widget.area,
-        rings: [(name: '${widget.area.name} boundary', ring: List.of(_points))],
+        rings: [(name: _alongStreet ? widget.area.name : '${widget.area.name} boundary', ring: _ring)],
         official: false,
       );
       showToast('Boundary saved for ${widget.area.name}.', kind: ToastKind.success);
@@ -216,11 +223,38 @@ class _BoundaryDrawPageState extends State<BoundaryDrawPage> {
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: Text('Boundary: ${widget.area.name}')),
         body: Column(children: [
-          const Padding(
-            padding: EdgeInsets.all(12),
-            child: Text('Tap the corners of the area in order, or walk to each corner and press the pin button to add the corner '
-                'exactly where you stand (blue dot = you, live).',
-                style: TextStyle(color: AppColors.muted)),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+            child: SegmentedButton<bool>(
+              segments: const [
+                ButtonSegment(value: true, icon: Icon(Icons.timeline), label: Text('Along the street')),
+                ButtonSegment(value: false, icon: Icon(Icons.pentagon_outlined), label: Text('Corners')),
+              ],
+              selected: {_alongStreet},
+              onSelectionChanged: (v) => setState(() {
+                _alongStreet = v.first;
+                _points.clear();
+              }),
+            ),
+          ),
+          if (_alongStreet)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Wrap(spacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                const Text('Width each side:'),
+                for (final w in const [15.0, 25.0, 40.0])
+                  ChoiceChip(label: Text('${w.round()} m'), selected: _halfWidth == w, onSelected: (_) => setState(() => _halfWidth = w)),
+              ]),
+            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
+            child: Text(
+                _alongStreet
+                    ? 'Tap along the middle of the street from one end to the other (3–6 taps; one at each bend). The green strip '
+                        'is the street boundary. Or walk along it and press the pin button at each point (blue dot = you, live).'
+                    : 'Tap the corners of the area in order, or walk to each corner and press the pin button to add the corner '
+                        'exactly where you stand (blue dot = you, live).',
+                style: const TextStyle(color: AppColors.muted)),
           ),
           Expanded(
             child: LiveMapView(
@@ -230,10 +264,10 @@ class _BoundaryDrawPageState extends State<BoundaryDrawPage> {
               me: _me.at,
               meAccuracyM: _me.accuracyM,
               onMapTap: (p) => setState(() => _points.add(p)),
-              route: _points.length == 2 ? List.of(_points) : const [],
+              route: _alongStreet ? (_points.length >= 2 ? List.of(_points) : const []) : (_points.length == 2 ? List.of(_points) : const []),
               areas: [
-                if (_points.length >= 3)
-                  MapArea(id: 'draft', ring: List.of(_points), stroke: AppColors.green, fill: AppColors.green.withValues(alpha: 0.18)),
+                if (_ring.length >= 3)
+                  MapArea(id: 'draft', ring: _ring, stroke: AppColors.green, fill: AppColors.green.withValues(alpha: 0.18)),
               ],
               dots: [
                 for (var k = 0; k < _points.length; k++)
@@ -249,7 +283,7 @@ class _BoundaryDrawPageState extends State<BoundaryDrawPage> {
                 IconButton.filledTonal(tooltip: 'Centre on me', onPressed: _centreOnMe, icon: const Icon(Icons.my_location)),
                 const SizedBox(width: 8),
                 IconButton.filled(
-                  tooltip: 'Add corner here (where I stand)',
+                  tooltip: 'Add a point here (where I stand)',
                   onPressed: _me.at == null ? null : _cornerHere,
                   icon: const Icon(Icons.add_location_alt),
                 ),
@@ -262,7 +296,7 @@ class _BoundaryDrawPageState extends State<BoundaryDrawPage> {
                   child: FilledButton.icon(
                     onPressed: _saving ? null : _save,
                     icon: const Icon(Icons.save),
-                    label: Text('Save (${_points.length} corners)'),
+                    label: Text(_alongStreet ? 'Save street (${_points.length} points)' : 'Save (${_points.length} corners)'),
                   ),
                 ),
               ]),

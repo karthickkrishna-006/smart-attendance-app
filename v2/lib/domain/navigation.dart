@@ -26,6 +26,7 @@ enum Section {
   myAttendance,
   messages,
   streetVisits,
+  streetMapping,
   // Everyone
   profile,
 }

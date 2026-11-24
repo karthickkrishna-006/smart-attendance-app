@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'geo.dart';
 
 /// A cleaning zone inside a street (for example "Sri Ram Nagar Zone 3"):
@@ -179,4 +181,52 @@ class ZoneVisitTracker {
     reset();
     return e;
   }
+}
+
+/// The boundary of a street drawn by tapping along it: a strip [halfWidthM]
+/// on each side of the line, extended [extendM] past both ends, following
+/// bends (mitred joins, limited so sharp corners never spike out).
+/// Returns the polygon ring (left side forward, right side back).
+List<GeoPoint2> streetStripRing(List<GeoPoint2> line, {double halfWidthM = 25, double extendM = 10}) {
+  if (line.length < 2) return const [];
+  final o = line.first;
+  final mLat = 111195.0, mLng = 111195.0 * math.cos(o.lat * math.pi / 180);
+  final pts = [for (final p in line) ((p.lng - o.lng) * mLng, (p.lat - o.lat) * mLat)];
+  // Drop repeated taps (zero-length segments).
+  final xy = <(double, double)>[pts.first];
+  for (final p in pts.skip(1)) {
+    final q = xy.last;
+    if (math.sqrt(math.pow(p.$1 - q.$1, 2) + math.pow(p.$2 - q.$2, 2)) > 0.5) xy.add(p);
+  }
+  if (xy.length < 2) return const [];
+  (double, double) unit(double x, double y) {
+    final l = math.sqrt(x * x + y * y);
+    return (x / l, y / l);
+  }
+  final dirs = [for (var i = 0; i < xy.length - 1; i++) unit(xy[i + 1].$1 - xy[i].$1, xy[i + 1].$2 - xy[i].$2)];
+  // Extend the ends along the street.
+  xy[0] = (xy[0].$1 - dirs.first.$1 * extendM, xy[0].$2 - dirs.first.$2 * extendM);
+  xy[xy.length - 1] = (xy.last.$1 + dirs.last.$1 * extendM, xy.last.$2 + dirs.last.$2 * extendM);
+  final left = <(double, double)>[], right = <(double, double)>[];
+  for (var i = 0; i < xy.length; i++) {
+    (double, double) n;
+    var scale = 1.0;
+    if (i == 0) {
+      n = (-dirs.first.$2, dirs.first.$1);
+    } else if (i == xy.length - 1) {
+      n = (-dirs.last.$2, dirs.last.$1);
+    } else {
+      final a = (-dirs[i - 1].$2, dirs[i - 1].$1), b = (-dirs[i].$2, dirs[i].$1);
+      final sum = (a.$1 + b.$1, a.$2 + b.$2);
+      final len = math.sqrt(sum.$1 * sum.$1 + sum.$2 * sum.$2);
+      n = len < 1e-6 ? a : (sum.$1 / len, sum.$2 / len);
+      final cosHalf = n.$1 * a.$1 + n.$2 * a.$2;
+      scale = cosHalf < 0.4 ? 2.5 : 1 / cosHalf; // miter, limited at sharp bends
+    }
+    final w = halfWidthM * scale;
+    left.add((xy[i].$1 + n.$1 * w, xy[i].$2 + n.$2 * w));
+    right.add((xy[i].$1 - n.$1 * w, xy[i].$2 - n.$2 * w));
+  }
+  GeoPoint2 back((double, double) p) => GeoPoint2(o.lat + p.$2 / mLat, o.lng + p.$1 / mLng);
+  return [for (final p in left) back(p), for (final p in right.reversed) back(p)];
 }

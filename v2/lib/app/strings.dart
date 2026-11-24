@@ -213,6 +213,7 @@ class Strings {
     'atZone': 'You are at: {zone}. This photo report is the proof for this zone.',
     'goToZone': 'Go to your cleaning zone to take the proof photo. The camera opens when you reach it.',
     'proofLinked': 'Proof photo saved for {zone}.',
+    'streetMapping': 'Streets & zones',
   };
 
   static const _ta = <String, String>{
@@ -408,6 +409,7 @@ class Strings {
     'atZone': 'நீங்கள் இருக்கும் இடம்: {zone}. இந்தப் புகைப்பட அறிக்கை இந்த மண்டலத்துக்கான சான்று.',
     'goToZone': 'சான்றுப் புகைப்படம் எடுக்க உங்கள் சுத்தம் செய்யும் மண்டலத்துக்குச் செல்லுங்கள். அங்கு சென்றதும் கேமரா திறக்கும்.',
     'proofLinked': '{zone} க்கான சான்றுப் புகைப்படம் சேமிக்கப்பட்டது.',
+    'streetMapping': 'தெருக்கள் & மண்டலங்கள்',
   };
 
   /// Keys present in English but missing in Tamil (checked by a unit test).

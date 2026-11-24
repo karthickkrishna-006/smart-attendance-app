@@ -16,6 +16,7 @@ import '../audit/audit_log_screen.dart';
 import '../../domain/street_zones.dart';
 import '../monitor/monitor_screens.dart';
 import '../monitor/street_screens.dart';
+import '../staff/street_mapping_screen.dart';
 import '../staff/staff_screens.dart';
 import '../work/officer_work_screens.dart';
 import '../profile/profile_screen.dart';
@@ -50,6 +51,7 @@ class _OfficerShellState extends State<OfficerShell> {
     Section.myAttendance: Icons.add_a_photo_outlined,
     Section.messages: Icons.mail_outline,
     Section.streetVisits: Icons.alt_route,
+    Section.streetMapping: Icons.edit_road,
     Section.profile: Icons.person_outline,
   };
 
@@ -68,6 +70,7 @@ class _OfficerShellState extends State<OfficerShell> {
         Section.myAttendance => 'myAttendance',
         Section.messages => 'messages',
         Section.streetVisits => 'streetVisits',
+        Section.streetMapping => 'streetMapping',
         Section.profile => 'profile',
         _ => 'home',
       };
@@ -98,6 +101,8 @@ class _OfficerShellState extends State<OfficerShell> {
         return PhotoAttendanceScreen(key: ValueKey(role), session: session);
       case Section.messages:
         return MessagesScreen(key: ValueKey(role), session: session);
+      case Section.streetMapping:
+        return StreetMappingScreen(key: ValueKey(role), session: session);
       case Section.streetVisits:
         return StreetVisitsScreen(key: ValueKey(role), session: session);
       case Section.liveMonitoring:
@@ -130,6 +135,8 @@ class _OfficerShellState extends State<OfficerShell> {
         sec,
         if (sec == base.first && takesPhotos) Section.myAttendance,
         if (sec == Section.attendance) Section.streetVisits,
+        // VP Secretaries / MNPs map the streets and cleaning zones of their panchayat.
+        if (sec == Section.attendance && role == Role.supervisor) Section.streetMapping,
       ],
     ];
     final section = sections.contains(_section) ? _section! : sections.first;
