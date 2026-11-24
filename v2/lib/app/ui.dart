@@ -202,3 +202,11 @@ class NoticeCard extends StatelessWidget {
         ),
       );
 }
+
+/// Names as people expect to read them: "karthick krishna" → "Karthick
+/// Krishna". Names already written with capitals are left as they are.
+String niceName(String? name) {
+  final n = (name ?? '').trim();
+  if (n.isEmpty || n.contains('@') || n != n.toLowerCase()) return n;
+  return n.split(RegExp(r'\s+')).map((w) => w.isEmpty ? w : w[0].toUpperCase() + w.substring(1)).join(' ');
+}

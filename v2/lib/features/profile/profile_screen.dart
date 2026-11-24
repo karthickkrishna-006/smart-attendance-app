@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../app/strings.dart';
 import '../../app/theme.dart';
 import '../../app/ui.dart';
+import '../../domain/roles.dart';
 import '../../data/session_controller.dart';
 
 /// Who you are, which roles you hold, over which area, and your language.
@@ -13,7 +14,7 @@ class ProfileScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = Strings.of(context);
-    final name = (session.account?['displayName'] as String?)?.trim() ?? '';
+    final name = niceName((session.account?['displayName'] as String?)?.trim());
     final email = session.user?.email ?? '';
     final employeeId = session.account?['employeeId'] as String?;
     return ListView(padding: const EdgeInsets.all(20), children: [
@@ -61,6 +62,7 @@ class ProfileScreen extends StatelessWidget {
                 },
               ),
             ),
+          if (session.orgName != null)
           ListTile(
             leading: const Icon(Icons.apartment_outlined),
             title: Text(s.t('organisation')),
@@ -68,6 +70,7 @@ class ProfileScreen extends StatelessWidget {
           ),
           if (employeeId != null && employeeId.isNotEmpty)
             ListTile(leading: const Icon(Icons.numbers), title: const Text('Employee ID'), subtitle: Text(employeeId)),
+          if (session.role != Role.sysAdmin)
           ListTile(
             leading: const Icon(Icons.place_outlined),
             title: Text(s.t('yourArea')),

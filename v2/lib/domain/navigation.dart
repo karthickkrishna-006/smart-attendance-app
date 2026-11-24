@@ -11,6 +11,7 @@ enum Section {
   workerTasks,
   // Officer app (menu)
   overview,
+  adminHome,
   liveMonitoring,
   attendance,
   employees,

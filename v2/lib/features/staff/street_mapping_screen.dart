@@ -120,7 +120,7 @@ class _StreetMappingScreenState extends State<StreetMappingScreen> {
                 child: Padding(
                   padding: const EdgeInsets.all(14),
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text('${streets.length} streets · $drawn drawn on the map', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                    Text('${streets.length} ${streets.length == 1 ? 'street' : 'streets'} · $drawn drawn on the map', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
                     const SizedBox(height: 4),
                     const Text('1. Add each street (name from the house-tax register).  2. Draw: tap along the street on the map.  '
                         '3. Zones: tap each bin / garbage point, or stand at it and press "Add zone here".',

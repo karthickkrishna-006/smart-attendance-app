@@ -21,6 +21,7 @@ import '../staff/staff_screens.dart';
 import '../work/officer_work_screens.dart';
 import '../profile/profile_screen.dart';
 import '../setup/people_screen.dart';
+import '../setup/admin_home.dart';
 import '../setup/setup_screen.dart';
 
 /// Officer app: a menu with only the sections this role may use (derived from
@@ -35,6 +36,14 @@ class OfficerShell extends StatefulWidget {
 class _OfficerShellState extends State<OfficerShell> {
   final _scaffold = GlobalKey<ScaffoldState>();
   Section? _section;
+  int _setupTab = 0;
+  List<Section> _visible = const [];
+
+  /// Opens a section (from Overview / Admin home tiles); for Setup, a tab.
+  void _open(Section section, {int? setupTab}) => setState(() {
+        _section = section;
+        if (setupTab != null) _setupTab = setupTab;
+      });
 
   static const _icons = <Section, IconData>{
     Section.overview: Icons.space_dashboard_outlined,
@@ -51,6 +60,7 @@ class _OfficerShellState extends State<OfficerShell> {
     Section.myAttendance: Icons.add_a_photo_outlined,
     Section.messages: Icons.mail_outline,
     Section.streetVisits: Icons.alt_route,
+    Section.adminHome: Icons.dashboard_outlined,
     Section.streetMapping: Icons.edit_road,
     Section.profile: Icons.person_outline,
   };
@@ -70,6 +80,7 @@ class _OfficerShellState extends State<OfficerShell> {
         Section.myAttendance => 'myAttendance',
         Section.messages => 'messages',
         Section.streetVisits => 'streetVisits',
+        Section.adminHome => 'adminHome',
         Section.streetMapping => 'streetMapping',
         Section.profile => 'profile',
         _ => 'home',
@@ -80,7 +91,9 @@ class _OfficerShellState extends State<OfficerShell> {
     final role = session.role!;
     switch (section) {
       case Section.overview:
-        return _Overview(key: ValueKey(role), session: session);
+        return _Overview(key: ValueKey(role), session: session, sections: _visible, onOpen: _open);
+      case Section.adminHome:
+        return AdminHomeScreen(session: session, onOpen: _open);
       case Section.employees:
         if (role == Role.sysAdmin || role == Role.orgAdmin) return PeopleScreen(session: session);
         return const MessageView(
@@ -112,7 +125,7 @@ class _OfficerShellState extends State<OfficerShell> {
       case Section.reports:
         return ReportsScreen(key: ValueKey(role), session: session);
       case Section.setup:
-        return SetupScreen(session: session);
+        return SetupScreen(key: ValueKey('setup$_setupTab'), session: session, initialTab: _setupTab);
       case Section.auditLog:
         return const AuditLogScreen();
       case Section.profile:
@@ -135,25 +148,49 @@ class _OfficerShellState extends State<OfficerShell> {
         sec,
         if (sec == base.first && takesPhotos) Section.myAttendance,
         if (sec == Section.attendance) Section.streetVisits,
+        if (role == Role.sysAdmin && sec == base.first) Section.adminHome,
         // VP Secretaries / MNPs map the streets and cleaning zones of their panchayat.
         if (sec == Section.attendance && role == Role.supervisor) Section.streetMapping,
       ],
     ];
-    final section = sections.contains(_section) ? _section! : sections.first;
-    final selected = sections.indexOf(section);
+    // Menu in groups (each role still sees only its own sections).
+    final groups = <(String, List<Section>)>[
+      (s.t('menuToday'), [Section.adminHome, Section.overview, Section.liveMonitoring, Section.attendance, Section.streetVisits, Section.alerts]),
+      (s.t('menuWork'), [Section.tasks, Section.fieldActivities]),
+      (s.t('menuMapping'), [Section.streetMapping, Section.employees, Section.setup]),
+      (s.t('menuReports'), [Section.coverage, Section.reports, Section.auditLog]),
+      (s.t('menuMe'), [Section.myAttendance, Section.messages, Section.profile]),
+    ];
+    final grouped = <(String, List<Section>)>[
+      for (final g in groups) (g.$1, [for (final x in g.$2) if (sections.contains(x)) x]),
+    ]..removeWhere((g) => g.$2.isEmpty);
+    final leftover = [for (final x in sections) if (!grouped.any((g) => g.$2.contains(x))) x];
+    if (leftover.isNotEmpty) grouped.add(('', leftover));
+    final ordered = [for (final g in grouped) ...g.$2];
+    _visible = ordered;
+    final section = ordered.contains(_section) ? _section! : ordered.first;
+    final selected = ordered.indexOf(section);
 
     final menu = NavigationDrawer(
       backgroundColor: Colors.white,
       selectedIndex: selected,
       onDestinationSelected: (i) {
-        setState(() => _section = sections.elementAt(i));
+        setState(() => _section = ordered.elementAt(i));
         _scaffold.currentState?.closeDrawer();
       },
       children: [
         _Header(session: session),
         const SizedBox(height: 8),
-        for (final sec in sections)
-          NavigationDrawerDestination(icon: Icon(_icons[sec] ?? Icons.circle_outlined), label: Text(s.t(_labelKey(sec)))),
+        for (final g in grouped) ...[
+          if (g.$1.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(28, 14, 16, 6),
+              child: Text(g.$1.toUpperCase(),
+                  style: const TextStyle(fontSize: 12, letterSpacing: 0.8, fontWeight: FontWeight.w700, color: AppColors.muted)),
+            ),
+          for (final sec in g.$2)
+            NavigationDrawerDestination(icon: Icon(_icons[sec] ?? Icons.circle_outlined), label: Text(s.t(_labelKey(sec)))),
+        ],
         const Padding(padding: EdgeInsets.fromLTRB(28, 12, 28, 4), child: Divider()),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -207,7 +244,9 @@ class _Header extends StatelessWidget {
       padding: EdgeInsets.fromLTRB(20, MediaQuery.paddingOf(context).top + 20, 20, 20),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(
-          (session.account?['displayName'] as String?)?.trim().isNotEmpty == true ? session.account!['displayName'] as String : (session.user?.email ?? ''),
+          (session.account?['displayName'] as String?)?.trim().isNotEmpty == true
+              ? niceName(session.account!['displayName'] as String)
+              : (session.user?.email ?? ''),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w700),
@@ -237,7 +276,9 @@ class _Header extends StatelessWidget {
 /// What this role may do and over which records, read straight from the
 /// permission policy (the same table as Phase 1, section 3).
 class _Overview extends StatefulWidget {
-  const _Overview({super.key, required this.session});
+  const _Overview({super.key, required this.session, required this.sections, required this.onOpen});
+  final List<Section> sections;
+  final void Function(Section section, {int? setupTab}) onOpen;
   final SessionController session;
   @override
   State<_Overview> createState() => _OverviewState();
@@ -325,8 +366,40 @@ class _OverviewState extends State<_Overview> {
         ),
       ],
       const SizedBox(height: 24),
-      Text(s.t('whatYouCanDo'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.ink)),
+      Text(s.t('quickActions'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.ink)),
       const SizedBox(height: 10),
+      LayoutBuilder(builder: (context, box) {
+        final cols = box.maxWidth >= 700 ? 4 : 2;
+        final w = (box.maxWidth - (cols - 1) * 10) / cols;
+        return Wrap(spacing: 10, runSpacing: 10, children: [
+          for (final sec in widget.sections.where((x) => x != Section.overview && x != Section.profile))
+            SizedBox(
+              width: w,
+              child: Material(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(14),
+                  onTap: () => widget.onOpen(sec),
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(borderRadius: BorderRadius.circular(14), border: Border.all(color: AppColors.line)),
+                    child: Row(children: [
+                      Icon(_OfficerShellState._icons[sec] ?? Icons.circle_outlined, color: AppColors.green),
+                      const SizedBox(width: 10),
+                      Expanded(child: Text(s.t(_OfficerShellState._labelKey(sec)), style: const TextStyle(fontWeight: FontWeight.w600))),
+                    ]),
+                  ),
+                ),
+              ),
+            ),
+        ]);
+      }),
+      const SizedBox(height: 18),
+      ExpansionTile(
+        tilePadding: EdgeInsets.zero,
+        title: Text(s.t('whatYouCanDo'), style: const TextStyle(fontWeight: FontWeight.w600)),
+        children: [
       Card(
         child: Column(children: [
           for (final e in caps.entries)
@@ -336,6 +409,8 @@ class _OverviewState extends State<_Overview> {
               subtitle: Text('Scope: ${_scopeText[e.value] ?? e.value.name}'),
             ),
         ]),
+      ),
+        ],
       ),
       const SizedBox(height: 16),
       Text(s.t('previewBanner'), style: const TextStyle(color: AppColors.muted)),

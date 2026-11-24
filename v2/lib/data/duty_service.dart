@@ -54,6 +54,9 @@ class DutyService extends ChangeNotifier {
   /// The cleaning zone the worker is at now (camera for proof photos).
   CleaningZone? get currentZone => _zoneVisits.current;
 
+  /// When the phone last sent its position (shown to the worker as reassurance).
+  DateTime? get lastSentAt => _sentAt;
+
   Position? _last;
   GeoPoint2? _sentPoint;
   DateTime? _sentAt;

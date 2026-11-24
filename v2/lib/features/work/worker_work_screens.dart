@@ -242,6 +242,16 @@ class _WorkerActivityScreenState extends State<WorkerActivityScreen> {
           const SizedBox(height: 6),
           Text(s.t('photosCount', {'n': '${_photos.length}'}), style: const TextStyle(color: AppColors.muted)),
           const SizedBox(height: 14),
+          // Tap to choose the kind of work (typing is optional).
+          Wrap(spacing: 8, runSpacing: 6, children: [
+            for (final k in const ['wkGarbage', 'wkSwept', 'wkDrain', 'wkBin'])
+              ChoiceChip(
+                label: Text(s.t(k)),
+                selected: _title.text == s.t(k),
+                onSelected: _busy ? null : (_) => setState(() => _title.text = s.t(k)),
+              ),
+          ]),
+          const SizedBox(height: 10),
           TextField(controller: _title, enabled: !_busy, decoration: InputDecoration(labelText: s.t('workTitle'))),
           const SizedBox(height: 10),
           TextField(controller: _details, enabled: !_busy, maxLines: 3, decoration: InputDecoration(labelText: s.t('workDescription'))),

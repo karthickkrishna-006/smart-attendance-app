@@ -151,7 +151,7 @@ class PeopleScreen extends StatelessWidget {
                   for (final p in people)
                     ListTile(
                       leading: Icon(p['claimedBy'] != null ? Icons.verified_user_outlined : Icons.schedule, color: p['claimedBy'] != null ? AppColors.success : AppColors.turmeric),
-                      title: Text('${p['name'] ?? p['email']}'),
+                      title: Text(p['name'] == null ? '${p['email']}' : niceName('${p['name']}'), style: const TextStyle(fontWeight: FontWeight.w600)),
                       subtitle: Text(
                         '${p['email']} · ${Designation.fromKey(p['designation'] as String?)?.title ?? session.titleOf(Role.fromKey(p['role'] as String?) ?? Role.worker)} · '
                         '${p['claimedBy'] != null ? 'signed in' : 'not signed in yet'}',

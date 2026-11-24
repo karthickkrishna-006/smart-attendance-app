@@ -29,22 +29,52 @@ class GeofencesTab extends StatelessWidget {
     return out;
   }
 
-  Future<AreaNode?> _pickArea(BuildContext context, List<AreaNode> areas) => showDialog<AreaNode>(
-        context: context,
-        builder: (c) => SimpleDialog(
-          title: const Text('Which area is this boundary for?'),
-          children: [
-            for (final a in areas)
-              SimpleDialogOption(
-                onPressed: () => Navigator.pop(c, a),
-                child: Padding(
-                  padding: EdgeInsets.only(left: 12.0 * (a.path.length - 1)),
-                  child: Text('${a.name}  (${a.level.key})'),
+  /// Search-and-pick an area (works with 1000+ official areas).
+  Future<AreaNode?> _pickArea(BuildContext context, List<AreaNode> areas) {
+    final byId = {for (final a in areas) a.id: a};
+    String pathOf(AreaNode a) => [for (final id in a.path.take(a.path.length - 1)) byId[id]?.name ?? ''].where((x) => x.isNotEmpty).join(' › ');
+    var q = '';
+    return showDialog<AreaNode>(
+      context: context,
+      builder: (c) => StatefulBuilder(
+        builder: (c, set) {
+          final hits = (q.isEmpty
+                  ? areas.where((a) => a.level == AreaLevel.location || a.level == AreaLevel.habitation)
+                  : areas.where((a) => a.name.toLowerCase().contains(q.toLowerCase())))
+              .take(60)
+              .toList();
+          return AlertDialog(
+            title: const Text('Which area is this boundary for?'),
+            content: SizedBox(
+              width: 420,
+              height: 420,
+              child: Column(children: [
+                TextField(
+                  autofocus: true,
+                  decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Type a street, habitation or panchayat', isDense: true),
+                  onChanged: (v) => set(() => q = v.trim()),
                 ),
-              ),
-          ],
-        ),
-      );
+                const SizedBox(height: 8),
+                if (hits.isEmpty) const Padding(padding: EdgeInsets.all(12), child: Text('No match. Try fewer letters.')),
+                Expanded(
+                  child: ListView(children: [
+                    for (final a in hits)
+                      ListTile(
+                        dense: true,
+                        title: Text(a.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                        subtitle: Text('${a.level.key} · ${pathOf(a)}', maxLines: 1, overflow: TextOverflow.ellipsis),
+                        onTap: () => Navigator.pop(c, a),
+                      ),
+                  ]),
+                ),
+              ]),
+            ),
+            actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('Cancel'))],
+          );
+        },
+      ),
+    );
+  }
 
   Future<void> _addCircle(BuildContext context, List<AreaNode> areas) async {
     final area = await _pickArea(context, areas);
@@ -165,41 +195,57 @@ class GeofencesTab extends StatelessWidget {
             return Scaffold(
               floatingActionButton: areas.isEmpty
                   ? null
-                  : Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [
-                      FloatingActionButton.extended(
-                        heroTag: 'viewmap',
-                        backgroundColor: AppColors.indigo,
-                        foregroundColor: Colors.white,
-                        onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => BoundariesMapPage(dir: dir))),
-                        icon: const Icon(Icons.map_outlined),
-                        label: const Text('View on map'),
+                  : FloatingActionButton.extended(
+                      heroTag: 'boundaryMenu',
+                      icon: const Icon(Icons.add),
+                      label: const Text('Add / view'),
+                      onPressed: () => showModalBottomSheet<void>(
+                        context: context,
+                        showDragHandle: true,
+                        builder: (sheet) => SafeArea(
+                          child: Column(mainAxisSize: MainAxisSize.min, children: [
+                            ListTile(
+                              leading: const Icon(Icons.map_outlined, color: AppColors.indigo),
+                              title: const Text('View all on the map'),
+                              subtitle: const Text('With your live position'),
+                              onTap: () {
+                                Navigator.pop(sheet);
+                                Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => BoundariesMapPage(dir: dir)));
+                              },
+                            ),
+                            ListTile(
+                              leading: const Icon(Icons.draw_outlined, color: AppColors.green),
+                              title: const Text('Draw on the map'),
+                              subtitle: const Text('A street: tap along it. Other areas: tap the corners.'),
+                              onTap: () async {
+                                Navigator.pop(sheet);
+                                final area = await _pickArea(context, areas);
+                                if (area == null || !context.mounted) return;
+                                await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => BoundaryDrawPage(dir: dir, area: area)));
+                              },
+                            ),
+                            ListTile(
+                              leading: const Icon(Icons.upload_file, color: AppColors.green),
+                              title: const Text('Import a GeoJSON file'),
+                              subtitle: const Text('Official boundaries from the GIS cell'),
+                              onTap: () {
+                                Navigator.pop(sheet);
+                                _import(context, areas);
+                              },
+                            ),
+                            ListTile(
+                              leading: const Icon(Icons.radio_button_unchecked, color: AppColors.green),
+                              title: const Text('Add a circle'),
+                              subtitle: const Text('Around a work site or office'),
+                              onTap: () {
+                                Navigator.pop(sheet);
+                                _addCircle(context, areas);
+                              },
+                            ),
+                          ]),
+                        ),
                       ),
-                      const SizedBox(height: 10),
-                      FloatingActionButton.extended(
-                        heroTag: 'draw',
-                        onPressed: () async {
-                          final area = await _pickArea(context, areas);
-                          if (area == null || !context.mounted) return;
-                          await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => BoundaryDrawPage(dir: dir, area: area)));
-                        },
-                        icon: const Icon(Icons.draw_outlined),
-                        label: const Text('Draw on map'),
-                      ),
-                      const SizedBox(height: 10),
-                      FloatingActionButton.extended(
-                        heroTag: 'import',
-                        onPressed: () => _import(context, areas),
-                        icon: const Icon(Icons.upload_file),
-                        label: const Text('Import GeoJSON'),
-                      ),
-                      const SizedBox(height: 10),
-                      FloatingActionButton.extended(
-                        heroTag: 'circle',
-                        onPressed: () => _addCircle(context, areas),
-                        icon: const Icon(Icons.radio_button_unchecked),
-                        label: const Text('Add circle'),
-                      ),
-                    ]),
+                    ),
               body: fences.isEmpty
                   ? MessageView(
                       icon: Icons.fence_outlined,
@@ -221,8 +267,9 @@ class GeofencesTab extends StatelessWidget {
                           title: Text('${f['name']}'),
                           subtitle: Text(
                             '${names[f['areaId']] ?? f['areaId']} · '
-                            '${f['kind'] == 'circle' ? 'circle ${(f['radiusM'] as num?)?.round()} m' : '${(f['ring'] as List?)?.length ?? 0} points'}'
-                            '${f['provisional'] == true ? ' · provisional' : ' · official'}',
+                            '${[for (final id in ((f['areaPath'] as List?) ?? const []).whereType<String>()) areas.where((a) => a.id == id).firstOrNull?.name ?? ''].where((x) => x.isNotEmpty).join(' › ')}'
+                            '${f['kind'] == 'circle' ? ' · circle ${(f['radiusM'] as num?)?.round()} m' : ''}'
+                            '${f['provisional'] == true ? ' · drawn in the app' : ' · official'}',
                           ),
                         ),
                     ]),

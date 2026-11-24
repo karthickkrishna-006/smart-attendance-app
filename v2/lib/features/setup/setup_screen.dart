@@ -17,7 +17,8 @@ import 'scope_picker.dart';
 /// role, and the switches. Every change is written with its audit entry.
 /// (Administrator screens are English-only in this build.)
 class SetupScreen extends StatelessWidget {
-  const SetupScreen({super.key, required this.session});
+  const SetupScreen({super.key, required this.session, this.initialTab = 0});
+  final int initialTab;
   final SessionController session;
 
   @override
@@ -25,6 +26,7 @@ class SetupScreen extends StatelessWidget {
     final dir = Directory(session.user!);
     return DefaultTabController(
       length: 7,
+      initialIndex: initialTab.clamp(0, 6),
       child: Column(children: [
         const TabBar(isScrollable: true, tabs: [
           Tab(text: 'Areas'),
@@ -73,10 +75,12 @@ class _AreasTab extends StatelessWidget {
   const _AreasTab({required this.dir});
   final Directory dir;
 
-  Future<void> _add(BuildContext context, List<AreaNode> all) async {
+  Future<void> _add(BuildContext context, List<AreaNode> all, {AreaNode? under}) async {
     final name = TextEditingController();
-    var level = all.any((a) => a.level == AreaLevel.district) ? AreaLevel.block : AreaLevel.district;
-    AreaNode? parent;
+    var level = under != null
+        ? AreaLevel.values[(under.level.index + 1).clamp(0, AreaLevel.values.length - 1)]
+        : (all.any((a) => a.level == AreaLevel.district) ? AreaLevel.block : AreaLevel.district);
+    AreaNode? parent = under;
     final ok = await showDialog<bool>(
       context: context,
       builder: (c) => StatefulBuilder(builder: (c, set) {
@@ -139,28 +143,132 @@ class _AreasTab extends StatelessWidget {
               icon: const Icon(Icons.add),
               label: const Text('Add area'),
             ),
-            body: ListView(padding: const EdgeInsets.fromLTRB(12, 12, 12, 96), children: [
-                    LgdImportCard(dir: dir),
-                    if (all.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.all(16),
-                        child: Text('No areas yet. Load the official areas above, or add them one by one with "Add area".',
-                            style: TextStyle(color: AppColors.muted)),
-                      ),
-                    for (final a in all)
-                      ListTile(
-                        contentPadding: EdgeInsets.only(left: 12.0 + 20.0 * (a.path.length - 1), right: 12),
-                        leading: Icon(a.level == AreaLevel.district ? Icons.public : Icons.subdirectory_arrow_right, color: AppColors.green),
-                        title: Text(a.name),
-                        subtitle: Text('${a.level.key}${a.provisional ? ' · provisional' : ''}'),
-                      ),
-                  ]),
+            body: _AreaTree(all: all, dir: dir, onAdd: (under) => _add(context, all, under: under)),
           );
         },
       );
 }
 
-// --------------------------------------------------------- organisations
+/// Areas as a folding tree (district → blocks → panchayats → habitations →
+/// streets) with search, so 1000+ official areas stay easy to work with.
+class _AreaTree extends StatefulWidget {
+  const _AreaTree({required this.all, required this.dir, required this.onAdd});
+  final List<AreaNode> all;
+  final Directory dir;
+  final void Function(AreaNode under) onAdd;
+  @override
+  State<_AreaTree> createState() => _AreaTreeState();
+}
+
+class _AreaTreeState extends State<_AreaTree> {
+  final _q = TextEditingController();
+  final _open = <String>{};
+
+  @override
+  void dispose() {
+    _q.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final all = widget.all;
+    final byId = {for (final a in all) a.id: a};
+    final kids = <String?, List<AreaNode>>{};
+    for (final a in all) {
+      kids.putIfAbsent(a.parentId, () => []).add(a);
+    }
+    for (final l in kids.values) {
+      l.sort((a, b) => a.name.compareTo(b.name));
+    }
+    int below(AreaNode a) => (kids[a.id] ?? const []).fold(0, (n, k) => n + 1 + below(k));
+    final q = _q.text.trim().toLowerCase();
+    final loaded = all.length >= 1000;
+
+    Widget node(AreaNode a, int depth) {
+      final children = kids[a.id] ?? const <AreaNode>[];
+      final open = _open.contains(a.id);
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        InkWell(
+          onTap: children.isEmpty ? null : () => setState(() => open ? _open.remove(a.id) : _open.add(a.id)),
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(8.0 + depth * 18, 6, 4, 6),
+            child: Row(children: [
+              Icon(children.isEmpty ? Icons.circle : (open ? Icons.expand_more : Icons.chevron_right),
+                  size: children.isEmpty ? 8 : 22, color: AppColors.muted),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(a.name, style: TextStyle(fontWeight: depth < 2 ? FontWeight.w700 : FontWeight.w500)),
+                  Text('${a.level.key}${children.isEmpty ? '' : ' · ${children.length} inside'}',
+                      style: const TextStyle(fontSize: 12, color: AppColors.muted)),
+                ]),
+              ),
+              if (a.level != AreaLevel.location)
+                IconButton(tooltip: 'Add an area inside', icon: const Icon(Icons.add_circle_outline, size: 20), onPressed: () => widget.onAdd(a)),
+            ]),
+          ),
+        ),
+        if (open) for (final c in children) node(c, depth + 1),
+      ]);
+    }
+
+    final roots = kids[null] ?? const <AreaNode>[];
+    return ListView(padding: const EdgeInsets.fromLTRB(12, 12, 12, 96), children: [
+      if (!loaded)
+        LgdImportCard(dir: widget.dir)
+      else
+        Card(
+          color: const Color(0xFFE8F1EC),
+          child: ListTile(
+            leading: const Icon(Icons.check_circle, color: AppColors.success),
+            title: const Text('Official Chengalpattu areas loaded'),
+            subtitle: Text('${all.length} areas · tap a block to open it'),
+            trailing: TextButton(
+              onPressed: () => showModalBottomSheet<void>(
+                context: context,
+                builder: (_) => Padding(padding: const EdgeInsets.all(16), child: LgdImportCard(dir: widget.dir)),
+              ),
+              child: const Text('Reload'),
+            ),
+          ),
+        ),
+      const SizedBox(height: 8),
+      TextField(
+        controller: _q,
+        onChanged: (_) => setState(() {}),
+        decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Search a block, panchayat, habitation or street', isDense: true),
+      ),
+      const SizedBox(height: 8),
+      if (all.isEmpty)
+        const Padding(
+          padding: EdgeInsets.all(16),
+          child: Text('No areas yet. Load the official areas above, or add them one by one with "Add area".', style: TextStyle(color: AppColors.muted)),
+        )
+      else if (q.isNotEmpty)
+        // Search: matches with their full path.
+        for (final a in all.where((a) => a.name.toLowerCase().contains(q)).take(80))
+          ListTile(
+            dense: true,
+            title: Text(a.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+            subtitle: Text('${a.level.key} · ${[for (final id in a.path.take(a.path.length - 1)) byId[id]?.name ?? ''].where((x) => x.isNotEmpty).join(' › ')}'),
+            trailing: a.level == AreaLevel.location
+                ? null
+                : IconButton(tooltip: 'Add an area inside', icon: const Icon(Icons.add_circle_outline, size: 20), onPressed: () => widget.onAdd(a)),
+          )
+      else
+        for (final r in roots) ...[
+          node(r, 0),
+          if (roots.length == 1 && !_open.contains(r.id))
+            Padding(
+              padding: const EdgeInsets.only(left: 40, top: 2),
+              child: Text('${below(r)} areas inside · tap to open', style: const TextStyle(color: AppColors.muted, fontSize: 12)),
+            ),
+        ],
+    ]);
+  }
+}
+
 class _OrganisationsTab extends StatelessWidget {
   const _OrganisationsTab({required this.dir});
   final Directory dir;

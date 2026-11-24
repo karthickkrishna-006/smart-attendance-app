@@ -711,11 +711,33 @@ class _LiveMonitoringScreenState extends State<LiveMonitoringScreen> {
 
                 return LayoutBuilder(builder: (context, box) {
                   final wide = box.maxWidth >= 900;
+                  final active = [_areaFilter, _typeFilter, _stateFilter].where((x) => x != null).length + (q.isEmpty ? 0 : 1);
                   final header = <Widget>[
                     if (problem != null) NoticeCard(text: problem),
                     kpis,
-                    const SizedBox(height: 12),
-                    filters,
+                    const SizedBox(height: 10),
+                    // Filters fold away so the map comes first.
+                    Row(children: [
+                      FilterChip(
+                        avatar: Icon(_filtersOpen ? Icons.expand_less : Icons.tune, size: 18),
+                        label: Text(active == 0 ? 'Filters' : 'Filters · $active active'),
+                        selected: _filtersOpen || active > 0,
+                        onSelected: (_) => setState(() => _filtersOpen = !_filtersOpen),
+                      ),
+                      if (active > 0) ...[
+                        const SizedBox(width: 6),
+                        TextButton(
+                          onPressed: () => setState(() {
+                            _areaFilter = null;
+                            _typeFilter = null;
+                            _stateFilter = null;
+                            _search.clear();
+                          }),
+                          child: const Text('Clear'),
+                        ),
+                      ],
+                    ]),
+                    if (_filtersOpen) ...[const SizedBox(height: 8), filters],
                     const SizedBox(height: 8),
                     legend,
                     const SizedBox(height: 8),

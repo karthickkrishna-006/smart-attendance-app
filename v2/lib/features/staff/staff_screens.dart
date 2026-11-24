@@ -165,6 +165,13 @@ class _PhotoAttendanceScreenState extends State<PhotoAttendanceScreen> {
                   Text(s.t('photoTimes'), style: const TextStyle(fontWeight: FontWeight.w600)),
                   const SizedBox(height: 6),
                   Wrap(spacing: 8, runSpacing: 6, children: [for (final r in c.slots) _slotChip(s, r)]),
+                  // The next photo time, said plainly.
+                  if (c.slots.where((r) => r.state == SlotState.pending).firstOrNull case final SlotResult next)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 10),
+                      child: Text(s.t('nextPhoto', {'time': next.label}),
+                          style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.indigo, fontSize: 16)),
+                    ),
                 ] else if (d.schedule.eventLabel != null)
                   Text(s.t('eventPhoto', {'event': s.t('ev_water_opened')}))
                 else
@@ -184,7 +191,7 @@ class _PhotoAttendanceScreenState extends State<PhotoAttendanceScreen> {
           Text(s.t('todayPhotos'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
           if (snap.hasError) Text('${snap.error}', style: const TextStyle(color: AppColors.danger)),
-          if (list.isEmpty && !snap.hasError) Text('—', style: const TextStyle(color: AppColors.muted)),
+          if (list.isEmpty && !snap.hasError) Text(s.t('noPhotosYet'), style: const TextStyle(color: AppColors.muted)),
           for (final p in list)
             Card(
               margin: const EdgeInsets.only(bottom: 8),
