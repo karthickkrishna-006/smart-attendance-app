@@ -8,6 +8,7 @@ import '../../domain/area.dart';
 import '../../domain/roles.dart';
 import '../../domain/designations.dart';
 import 'demo_tab.dart';
+import 'lgd_import_card.dart';
 import 'district_admin.dart';
 import 'geofences_tab.dart';
 import 'scope_picker.dart';
@@ -138,13 +139,14 @@ class _AreasTab extends StatelessWidget {
               icon: const Icon(Icons.add),
               label: const Text('Add area'),
             ),
-            body: all.isEmpty
-                ? const MessageView(
-                    icon: Icons.account_tree_outlined,
-                    title: 'No areas yet',
-                    body: 'Start with the district, then add its blocks, zones and panchayats. Use official names only.',
-                  )
-                : ListView(padding: const EdgeInsets.fromLTRB(12, 12, 12, 96), children: [
+            body: ListView(padding: const EdgeInsets.fromLTRB(12, 12, 12, 96), children: [
+                    LgdImportCard(dir: dir),
+                    if (all.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Text('No areas yet. Load the official areas above, or add them one by one with "Add area".',
+                            style: TextStyle(color: AppColors.muted)),
+                      ),
                     for (final a in all)
                       ListTile(
                         contentPadding: EdgeInsets.only(left: 12.0 + 20.0 * (a.path.length - 1), right: 12),

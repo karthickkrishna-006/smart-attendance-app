@@ -38,6 +38,9 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  # Official area list (Local Government Directory) for the area import.
+  assets:
+    - assets/lgd/
   # One typeface for English and Tamil (SIL Open Font License, assets/fonts/OFL.txt).
   fonts:
     - family: NotoSans
