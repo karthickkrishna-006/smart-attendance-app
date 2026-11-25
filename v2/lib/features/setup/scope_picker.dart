@@ -94,18 +94,24 @@ class _ScopePickerState extends State<_ScopePicker> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      bottomNavigationBar: SafeArea(
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+          decoration: const BoxDecoration(color: Colors.white, border: Border(top: BorderSide(color: AppColors.line))),
+          child: Row(children: [
+            Expanded(
+              child: Text(_chosen.isEmpty ? 'Nothing chosen' : '${_chosen.length} area${_chosen.length == 1 ? '' : 's'} chosen',
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
+            ),
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+            const SizedBox(width: 8),
+            FilledButton(style: FilledButton.styleFrom(minimumSize: const Size(110, 48)), onPressed: _done, child: const Text('Done')),
+          ]),
+        ),
+      ),
       appBar: AppBar(
         leading: IconButton(icon: const Icon(Icons.close), tooltip: 'Cancel', onPressed: () => Navigator.pop(context)),
-        title: Text(widget.title),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: FilledButton(
-              onPressed: _done,
-              child: const Text('Done'),
-            ),
-          ),
-        ],
+        title: Text(widget.title, style: const TextStyle(color: AppColors.ink, fontSize: 20, fontWeight: FontWeight.w600)),
       ),
       body: StreamBuilder<List<AreaNode>>(
         stream: _areas,
@@ -196,7 +202,7 @@ class _ScopePickerState extends State<_ScopePicker> {
           final roots = kids[null] ?? const <AreaNode>[];
           final chosenList = [for (final id in _chosen) byId[id]].whereType<AreaNode>().toList();
 
-          return ListView(padding: const EdgeInsets.fromLTRB(12, 12, 12, 32), children: [
+          return ListView(padding: const EdgeInsets.fromLTRB(12, 12, 12, 24), children: [
             if (widget.fixedOrgId == null)
               StreamBuilder<List<Map<String, dynamic>>>(
                 stream: _orgs,
