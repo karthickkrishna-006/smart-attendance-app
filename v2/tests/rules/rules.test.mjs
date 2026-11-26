@@ -594,6 +594,32 @@ test('demo data: "Create" twice must replace, not overwrite; admin removes synth
 
 
 // =============================================================== Village panchayat staff, photo attendance, messages
+test('tasks for one job: only staff of that job can work on them', async () => {
+  await seed('accounts/tk1', { email: 'tk1@x.in', status: 'active' });
+  await seed('roleAssignments/tk1__worker', { uid: 'tk1', role: 'worker', areaIds: ['b1'], active: true, source: 'admin', grantedBy: 'adm', designation: 'thoomai_kavalar' });
+  await seed('accounts/oht1', { email: 'oht1@x.in', status: 'active' });
+  await seed('roleAssignments/oht1__worker', { uid: 'oht1', role: 'worker', areaIds: ['b1'], active: true, source: 'admin', grantedBy: 'adm', designation: 'oht_operator' });
+  const zs = as('zs1', 'zs1@x.in').db;
+  await assertSucceeds(setDoc(doc(zs, 'tasks/j1'), task({ forDesignation: 'thoomai_kavalar' })));
+  await assertSucceeds(setDoc(doc(zs, 'tasks/j2'), task({ forDesignation: null })));                    // everyone
+  await assertFails(setDoc(doc(zs, 'tasks/j3'), task({ forDesignation: 'chief_minister' })));           // not a job
+  const start = { status: 'in_progress', updatedAt: serverTimestamp() };
+  await assertFails(updateDoc(doc(as('oht1', 'oht1@x.in').db, 'tasks/j1'), start));                     // wrong job
+  await assertFails(updateDoc(doc(as('w1', 'w1@x.in').db, 'tasks/j1'), start));                         // no job set
+  await assertSucceeds(updateDoc(doc(as('tk1', 'tk1@x.in').db, 'tasks/j1'), start));
+  await assertSucceeds(updateDoc(doc(as('oht1', 'oht1@x.in').db, 'tasks/j2'), start));                  // everyone's task
+});
+
+test('an administrator can never switch off their own administrator role', async () => {
+  const a = admin();
+  const off = writeBatch(a.db);
+  off.update(doc(a.db, 'roleAssignments/adm__sys_admin'), { active: false, auditId: audit(off, a, 'roleAssignments/adm__sys_admin') });
+  await assertFails(off.commit());
+  const other = writeBatch(a.db);
+  other.update(doc(a.db, 'roleAssignments/w1__worker'), { active: false, auditId: audit(other, a, 'roleAssignments/w1__worker') });
+  await assertSucceeds(other.commit());
+});
+
 test('designations: prepared by the admin, copied exactly on first sign-in', async () => {
   const a = admin();
   await assertSucceeds(addPrereg(a, 'tk@x.in', { role: 'worker', designation: 'thoomai_kavalar', areaIds: ['b1'] }));

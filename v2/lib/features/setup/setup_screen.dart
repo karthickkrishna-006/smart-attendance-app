@@ -402,8 +402,12 @@ class _AccessTab extends StatelessWidget {
             final names = emails.data ?? const <String, String>{};
             return Scaffold(
               floatingActionButton: FloatingActionButton.extended(onPressed: () => _grant(context), icon: const Icon(Icons.add_moderator_outlined), label: const Text('Give role')),
-              body: ListView(padding: const EdgeInsets.fromLTRB(12, 12, 12, 96), children: [
-                for (final a in list)
+              body: SearchableList<Map<String, dynamic>>(
+                items: list,
+                textOf: (a) => '${names[a['uid']] ?? a['uid']} ${a['designation'] ?? ''} ${a['role'] ?? ''}',
+                hint: 'Search name, email or staff type',
+                itemBuilder: (context, a) =>
+
                   ListTile(
                     title: Text(names[a['uid']] ?? '${a['uid']}'),
                     subtitle: Text(
@@ -412,10 +416,35 @@ class _AccessTab extends StatelessWidget {
                     ),
                     onTap: () => _editScope(context, a),
                     trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                      Switch(
-                        value: a['active'] == true,
-                        onChanged: (v) => runWrite(() => dir.setRoleActive(a['id'] as String, v), done: v ? 'Role switched on.' : 'Role switched off.'),
-                      ),
+                      if (a['uid'] == dir.user.uid && a['role'] == 'sys_admin')
+                        // Your own administrator role can never be switched
+                        // off here, so the district is never left without one.
+                        const Tooltip(
+                          message: 'Your own administrator role cannot be switched off',
+                          child: Padding(padding: EdgeInsets.all(12), child: Icon(Icons.lock_outline, color: AppColors.muted)),
+                        )
+                      else
+                        Switch(
+                          value: a['active'] == true,
+                          onChanged: (v) async {
+                            if (!v) {
+                              final who = names[a['uid']] ?? 'this person';
+                              final ok = await showDialog<bool>(
+                                context: context,
+                                builder: (c) => AlertDialog(
+                                  title: const Text('Switch off this role?'),
+                                  content: Text('$who will lose this role at once and cannot use what it allows until it is switched on again.'),
+                                  actions: [
+                                    TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
+                                    FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Switch off')),
+                                  ],
+                                ),
+                              );
+                              if (ok != true) return;
+                            }
+                            runWrite(() => dir.setRoleActive(a['id'] as String, v), done: v ? 'Role switched on.' : 'Role switched off.');
+                          },
+                        ),
                       if (a['uid'] != dir.user.uid)
                         IconButton(
                           tooltip: 'Delete role',
@@ -443,7 +472,7 @@ class _AccessTab extends StatelessWidget {
                         ),
                     ]),
                   ),
-              ]),
+              ),
             );
           },
         ),
@@ -541,4 +570,58 @@ class _SettingsTab extends StatelessWidget {
           ]);
         },
       );
+}
+
+
+/// A search box over a long list that is built lazily, so thousands of staff
+/// stay smooth.
+class SearchableList<T> extends StatefulWidget {
+  const SearchableList({super.key, required this.items, required this.textOf, required this.itemBuilder, this.hint = 'Search'});
+  final List<T> items;
+  final String Function(T) textOf;
+  final Widget Function(BuildContext, T) itemBuilder;
+  final String hint;
+
+  @override
+  State<SearchableList<T>> createState() => _SearchableListState<T>();
+}
+
+class _SearchableListState<T> extends State<SearchableList<T>> {
+  final _q = TextEditingController();
+
+  @override
+  void dispose() {
+    _q.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final q = _q.text.trim().toLowerCase();
+    final shown = q.isEmpty ? widget.items : widget.items.where((x) => widget.textOf(x).toLowerCase().contains(q)).toList();
+    return Column(children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+        child: TextField(
+          controller: _q,
+          onChanged: (_) => setState(() {}),
+          decoration: InputDecoration(prefixIcon: const Icon(Icons.search), hintText: widget.hint, isDense: true),
+        ),
+      ),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: Text('${shown.length} of ${widget.items.length}', style: const TextStyle(color: AppColors.muted, fontSize: 13)),
+        ),
+      ),
+      Expanded(
+        child: ListView.builder(
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 96),
+          itemCount: shown.length,
+          itemBuilder: (context, i) => widget.itemBuilder(context, shown[i]),
+        ),
+      ),
+    ]);
+  }
 }

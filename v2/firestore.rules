@@ -173,6 +173,9 @@ service cloud.firestore {
         && designationOk(incoming().get('designation', null))
         && incoming().areaIds is list && incoming().areaIds.size() <= 15
         && incoming().active is bool
+        // Never switch off your OWN System administrator role: there must
+        // always be an administrator left who can switch others back on.
+        && !(assignmentId == uid() + '__sys_admin' && incoming().active == false)
         && audited('roleAssignments/' + assignmentId);
 
       // The System administrator may delete someone else's role. The deletion
@@ -518,6 +521,13 @@ service cloud.firestore {
       return hasRole('worker') && inAreas(assignment('worker').data.areaIds, path);
     }
 
+    // A task meant for one job (forDesignation) can only be done by staff
+    // of that job.
+    function workerFits(task) {
+      return task.get('forDesignation', null) == null
+        || task.forDesignation == assignment('worker').data.get('designation', null);
+    }
+
     // ------------------------------------------------------------------ tasks
     // Work assigned to an AREA (a street, panchayat or block): every worker
     // assigned there sees it. statuses: assigned, in_progress, submitted,
@@ -530,7 +540,10 @@ service cloud.firestore {
       allow create: if (isSysAdmin() && incoming().get('synthetic', false) == true
                          && incoming().areaPath is list && incoming().areaPath.size() > 0)
         || (incoming().keys().hasOnly(['title', 'description', 'areaId', 'areaPath', 'priority', 'dueDate', 'status',
-                                       'createdBy', 'createdByName', 'createdAt', 'updatedAt', 'synthetic'])
+                                       'createdBy', 'createdByName', 'createdAt', 'updatedAt', 'synthetic', 'forDesignation'])
+            // null = everyone in the area; otherwise only staff of that job.
+            && (incoming().get('forDesignation', null) == null
+                || (incoming().forDesignation is string && designationOk(incoming().forDesignation)))
             && incoming().title is string && incoming().title.size() > 0 && incoming().title.size() <= 120
             && incoming().description is string && incoming().description.size() <= 2000
             && incoming().areaId is string
@@ -546,6 +559,7 @@ service cloud.firestore {
       allow update: if
         // A worker in the area starts it or submits it.
         (workerCovers(resource.data.areaPath)
+          && workerFits(resource.data)
           && changed().hasOnly(['status', 'updatedAt'])
           && incoming().updatedAt == request.time
           && ((resource.data.status in ['assigned'] && incoming().status == 'in_progress')

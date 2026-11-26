@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -5,6 +7,7 @@ import '../domain/area.dart';
 import '../domain/geo.dart';
 import '../domain/roles.dart';
 import '../domain/session.dart';
+import '../domain/staff_import.dart';
 import 'audited_batch.dart';
 
 /// Master data and access management (System administrator; organisation
@@ -143,6 +146,52 @@ class Directory {
       ...b.stamp('person_added', 'preregistrations/$key', details: role.key),
     });
     await b.commit();
+  }
+
+  /// Adds many people from a staff sheet. Each person is written with their
+  /// own audit entry; the security rules may read only ~20 documents per
+  /// batch, so people go in small batches, a few batches at a time.
+  /// Returns how many were added; [onProgress] gets (done, total).
+  Future<int> bulkPreregister(List<ImportRow> rows, {void Function(int done, int total)? onProgress}) async {
+    const perBatch = 6, parallel = 8;
+    final chunks = <List<ImportRow>>[
+      for (var i = 0; i < rows.length; i += perBatch) rows.sublist(i, math.min(i + perBatch, rows.length)),
+    ];
+    var done = 0;
+    final failed = <String>[];
+    Future<void> write(List<ImportRow> chunk) async {
+      final b = AuditedBatch(db, user);
+      for (final r in chunk) {
+        final key = emailKey(r.email);
+        b.batch.set(db.doc('preregistrations/$key'), {
+          'email': key,
+          'role': r.designation.role.key,
+          'designation': r.designation.key,
+          'areaIds': r.areaIds,
+          if (r.name.trim().isNotEmpty) 'name': r.name.trim(),
+          if (r.employeeId.trim().isNotEmpty) 'employeeId': r.employeeId.trim(),
+          'createdBy': user.uid,
+          'createdAt': FieldValue.serverTimestamp(),
+          ...b.stamp('person_added', 'preregistrations/$key', details: '${r.designation.role.key} (sheet)'),
+        });
+      }
+      try {
+        await b.commit();
+        done += chunk.length;
+      } catch (_) {
+        failed.addAll(chunk.map((r) => 'line ${r.line} (${r.email})'));
+      }
+      onProgress?.call(done, rows.length);
+    }
+
+    for (var i = 0; i < chunks.length; i += parallel) {
+      await Future.wait(chunks.sublist(i, math.min(i + parallel, chunks.length)).map(write));
+    }
+    if (failed.isNotEmpty) {
+      throw '$done added. Not saved: ${failed.take(10).join(', ')}${failed.length > 10 ? ' and ${failed.length - 10} more' : ''}. '
+          'They may have been added by someone else meanwhile; check the list and import those lines again.';
+    }
+    return done;
   }
 
   Future<void> removePreregistration(String email) => db.doc('preregistrations/${emailKey(email)}').delete();

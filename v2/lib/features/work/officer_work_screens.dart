@@ -8,7 +8,9 @@ import '../../data/scoped.dart';
 import '../../data/session_controller.dart';
 import '../../data/work_repository.dart';
 import '../../domain/attendance.dart';
+import '../../domain/designations.dart';
 import '../../domain/policy.dart';
+import '../../domain/roles.dart';
 import 'worker_work_screens.dart';
 
 Widget _dayBar(BuildContext context, DateTime day, ValueChanged<DateTime> onChange) {
@@ -207,6 +209,10 @@ class _OfficerTasksScreenState extends State<OfficerTasksScreen> {
     var area = areas.first;
     var priority = 'normal';
     var due = DateTime.now().add(const Duration(days: 1));
+    // Who should do it: everyone in the area, or only staff of one job.
+    Designation? forJob;
+    final jobs = Designation.forRole(Role.worker);
+    final s = Strings.of(context);
     final ok = await showDialog<bool>(
       context: context,
       builder: (c) => StatefulBuilder(
@@ -214,6 +220,25 @@ class _OfficerTasksScreenState extends State<OfficerTasksScreen> {
           title: const Text('New task'),
           content: SingleChildScrollView(
             child: Column(mainAxisSize: MainAxisSize.min, children: [
+              DropdownButtonFormField<Designation?>(
+                value: forJob,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Who should do it'),
+                items: [
+                  const DropdownMenuItem<Designation?>(value: null, child: Text('Everyone in the area')),
+                  for (final d in jobs) DropdownMenuItem<Designation?>(value: d, child: Text('Only ${d.title}', overflow: TextOverflow.ellipsis)),
+                ],
+                onChanged: (v) => set(() => forJob = v),
+              ),
+              const SizedBox(height: 10),
+              if (forJob != null) ...[
+                // Quick picks: the work of that job only.
+                Wrap(spacing: 6, runSpacing: 6, children: [
+                  for (final k in forJob!.workKinds)
+                    ActionChip(label: Text(s.t(k)), onPressed: () => set(() => title.text = s.t(k))),
+                ]),
+                const SizedBox(height: 10),
+              ],
               TextField(controller: title, decoration: const InputDecoration(labelText: 'Task (for example: Clean Street 4)')),
               const SizedBox(height: 10),
               TextField(controller: details, maxLines: 3, decoration: const InputDecoration(labelText: 'Instructions')),
@@ -221,7 +246,7 @@ class _OfficerTasksScreenState extends State<OfficerTasksScreen> {
               DropdownButtonFormField<Map<String, dynamic>>(
                 value: area,
                 isExpanded: true,
-                decoration: const InputDecoration(labelText: 'Street / area (all workers there see it)'),
+                decoration: const InputDecoration(labelText: 'Street / area'),
                 items: [
                   for (final a in areas)
                     DropdownMenuItem(
@@ -270,8 +295,10 @@ class _OfficerTasksScreenState extends State<OfficerTasksScreen> {
       return;
     }
     try {
-      await repo.createTask(title: title.text, description: details.text, area: area, priority: priority, dueDate: dayKey(due));
-      showToast('Task assigned to ${area['name']}.', kind: ToastKind.success);
+      await repo.createTask(
+          title: title.text, description: details.text, area: area, priority: priority, dueDate: dayKey(due), forDesignation: forJob?.key);
+      showToast(forJob == null ? 'Task assigned to everyone in ${area['name']}.' : 'Task assigned to ${forJob!.title} staff in ${area['name']}.',
+          kind: ToastKind.success);
     } catch (e) {
       showToast('Not saved: $e', kind: ToastKind.error);
     }
@@ -334,6 +361,7 @@ class _OfficerTasksScreenState extends State<OfficerTasksScreen> {
                     Text(
                       'Due ${t['dueDate']}${(t['dueDate'] as String? ?? '').compareTo(today) < 0 && keep(t) && _filter == 'open' ? ' · OVERDUE' : ''}'
                       ' · ${s.t('pr_${t['priority'] ?? 'normal'}')} · by ${t['createdByName'] ?? ''}'
+                      ' · for ${Designation.fromKey(t['forDesignation'] as String?)?.title ?? 'everyone'}'
                       '${t['synthetic'] == true ? ' · demo' : ''}',
                       style: const TextStyle(color: AppColors.muted, fontSize: 13),
                     ),

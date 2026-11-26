@@ -6,6 +6,7 @@ import '../../data/directory.dart';
 import '../../data/session_controller.dart';
 import '../../domain/designations.dart';
 import '../../domain/roles.dart';
+import 'bulk_import_screen.dart';
 import 'scope_picker.dart';
 import 'setup_screen.dart' show runWrite;
 
@@ -13,9 +14,23 @@ import 'setup_screen.dart' show runWrite;
 /// get exactly this role and area at once: no approval step.
 /// System administrators add anyone; organisation administrators add field
 /// workers to their own organisation (the security rules enforce both).
-class PeopleScreen extends StatelessWidget {
+class PeopleScreen extends StatefulWidget {
   const PeopleScreen({super.key, required this.session});
   final SessionController session;
+
+  @override
+  State<PeopleScreen> createState() => _PeopleScreenState();
+}
+
+class _PeopleScreenState extends State<PeopleScreen> {
+  SessionController get session => widget.session;
+  final _q = TextEditingController();
+
+  @override
+  void dispose() {
+    _q.dispose();
+    super.dispose();
+  }
 
   bool get _isOrgAdmin => session.role == Role.orgAdmin;
   String? get _myOrg => session.current?.orgId;
@@ -119,6 +134,14 @@ class PeopleScreen extends StatelessWidget {
     await runWrite(() => dir.removePerson(p), done: '${p['email']} removed.');
   }
 
+  Widget _importButton(BuildContext context, Directory dir, List<Map<String, dynamic>> people) => OutlinedButton.icon(
+        onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => BulkImportScreen(dir: dir, existingEmails: {for (final p in people) '${p['email']}'}),
+        )),
+        icon: const Icon(Icons.upload_file_outlined),
+        label: const Text('Import sheet'),
+      );
+
   @override
   Widget build(BuildContext context) {
     final dir = Directory(session.user!);
@@ -141,29 +164,70 @@ class PeopleScreen extends StatelessWidget {
             icon: const Icon(Icons.person_add_alt_1_outlined),
             label: const Text('Add a person'),
           ),
-          body: people.isEmpty
-              ? const MessageView(
+          body: people.isEmpty && !_isOrgAdmin
+              ? MessageView(
                   icon: Icons.groups_outlined,
                   title: 'Nobody added yet',
-                  body: 'Add people by the email they sign in with. They get access the first time they sign in.',
+                  body: 'Add people by the email they sign in with, one by one or many at once from an Excel sheet. '
+                      'They get access the first time they sign in.',
+                  actions: [_importButton(context, dir, people)],
                 )
-              : ListView(padding: const EdgeInsets.fromLTRB(12, 12, 12, 96), children: [
-                  for (final p in people)
-                    ListTile(
-                      leading: Icon(p['claimedBy'] != null ? Icons.verified_user_outlined : Icons.schedule, color: p['claimedBy'] != null ? AppColors.success : AppColors.turmeric),
-                      title: Text(p['name'] == null ? '${p['email']}' : niceName('${p['name']}'), style: const TextStyle(fontWeight: FontWeight.w600)),
-                      subtitle: Text(
-                        '${p['email']} · ${Designation.fromKey(p['designation'] as String?)?.title ?? session.titleOf(Role.fromKey(p['role'] as String?) ?? Role.worker)} · '
-                        '${p['claimedBy'] != null ? 'signed in' : 'not signed in yet'}',
+              : Column(children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+                    child: Row(children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _q,
+                          onChanged: (_) => setState(() {}),
+                          decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Search name, email or ID', isDense: true),
+                        ),
                       ),
-                      trailing: (_isOrgAdmin && p['claimedBy'] != null)
-                          ? null
-                          : IconButton(
-                              tooltip: 'Remove',
-                              icon: const Icon(Icons.delete_outline, color: AppColors.danger),
-                              onPressed: () => _confirmRemove(context, dir, p),
-                            ),
+                      if (!_isOrgAdmin) ...[const SizedBox(width: 8), _importButton(context, dir, people)],
+                    ]),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        '${people.length} people · ${people.where((p) => p['claimedBy'] != null).length} signed in',
+                        style: const TextStyle(color: AppColors.muted, fontSize: 13),
+                      ),
                     ),
+                  ),
+                  Expanded(child: Builder(builder: (context) {
+                    final q = _q.text.trim().toLowerCase();
+                    final shown = q.isEmpty
+                        ? people
+                        : people
+                            .where((p) => '${p['email']} ${p['name'] ?? ''} ${p['employeeId'] ?? ''}'.toLowerCase().contains(q))
+                            .toList();
+                    // Built lazily: thousands of people stay smooth.
+                    return ListView.builder(
+                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 96),
+                      itemCount: shown.length,
+                      itemBuilder: (context, i) {
+                        final p = shown[i];
+                        return ListTile(
+                          leading: Icon(p['claimedBy'] != null ? Icons.verified_user_outlined : Icons.schedule,
+                              color: p['claimedBy'] != null ? AppColors.success : AppColors.turmeric),
+                          title: Text(p['name'] == null ? '${p['email']}' : niceName('${p['name']}'), style: const TextStyle(fontWeight: FontWeight.w600)),
+                          subtitle: Text(
+                            '${p['email']} · ${Designation.fromKey(p['designation'] as String?)?.title ?? session.titleOf(Role.fromKey(p['role'] as String?) ?? Role.worker)} · '
+                            '${p['claimedBy'] != null ? 'signed in' : 'not signed in yet'}',
+                          ),
+                          trailing: (_isOrgAdmin && p['claimedBy'] != null)
+                              ? null
+                              : IconButton(
+                                  tooltip: 'Remove',
+                                  icon: const Icon(Icons.delete_outline, color: AppColors.danger),
+                                  onPressed: () => _confirmRemove(context, dir, p),
+                                ),
+                        );
+                      },
+                    );
+                  })),
                 ]),
         );
       },

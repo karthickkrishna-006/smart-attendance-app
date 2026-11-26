@@ -6,6 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../domain/attendance.dart';
+import '../domain/roles.dart';
 import '../domain/geo.dart';
 import 'attendance_repository.dart';
 import 'scoped.dart';
@@ -26,8 +27,20 @@ class WorkRepository {
 
   // ------------------------------------------------------------------ tasks
   /// Tasks the current person may see (worker: their areas; officers: scope).
-  Stream<List<Map<String, dynamic>>> watchTasks() =>
-      watchMerged(scopedQueries(session, 'tasks', orgScoped: false), sort: newestFirst('createdAt'));
+  /// Field workers see only tasks for everyone in their area or for their
+  /// own job, never another job's work.
+  Stream<List<Map<String, dynamic>>> watchTasks() {
+    final all = watchMerged(scopedQueries(session, 'tasks', orgScoped: false), sort: newestFirst('createdAt'));
+    if (session.role != Role.worker) return all;
+    final mine = session.designation?.key;
+    return all.map((list) => list.where((t) => taskIsFor(t, mine)).toList());
+  }
+
+  /// Whether a task is meant for someone of job [designation].
+  static bool taskIsFor(Map<String, dynamic> task, String? designation) {
+    final f = task['forDesignation'] as String?;
+    return f == null || f == designation;
+  }
 
   /// Areas inside the officer's scope, for choosing where a task goes.
   Future<List<Map<String, dynamic>>> areasInScope() async {
@@ -56,6 +69,7 @@ class WorkRepository {
     required Map<String, dynamic> area,
     required String priority,
     required String dueDate,
+    String? forDesignation,
   }) =>
       db.collection('tasks').add({
         'title': title.trim(),
@@ -70,6 +84,7 @@ class WorkRepository {
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
         'synthetic': false,
+        if (forDesignation != null) 'forDesignation': forDesignation,
       });
 
   Future<void> setTaskStatus(String taskId, String status, {String? note}) => db.doc('tasks/$taskId').update({
