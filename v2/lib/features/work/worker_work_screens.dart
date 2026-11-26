@@ -14,6 +14,7 @@ import '../../data/duty_service.dart';
 import '../../data/location.dart';
 import '../../data/session_controller.dart';
 import '../../data/work_repository.dart';
+import '../../domain/designations.dart';
 
 String shortDateTime(Object? t) {
   if (t is! Timestamp) return '…';
@@ -244,7 +245,7 @@ class _WorkerActivityScreenState extends State<WorkerActivityScreen> {
           const SizedBox(height: 14),
           // Tap to choose the kind of work (typing is optional).
           Wrap(spacing: 8, runSpacing: 6, children: [
-            for (final k in const ['wkGarbage', 'wkSwept', 'wkDrain', 'wkBin'])
+            for (final k in widget.session.designation?.workKinds ?? Designation.genericWorkKinds)
               ChoiceChip(
                 label: Text(s.t(k)),
                 selected: _title.text == s.t(k),

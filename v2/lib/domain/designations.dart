@@ -56,6 +56,22 @@ enum Designation {
     return null;
   }
 
+  /// Quick-pick work types on the "Report work" screen (string keys), so each
+  /// person sees only the work of their own job.
+  List<String> get workKinds => switch (this) {
+        Designation.thoomaiKavalar => const ['wkGarbage', 'wkSegregation', 'wkSwept', 'wkDrain', 'wkBin'],
+        Designation.ohtOperator => const ['wkWaterOpened', 'wkWaterClosed', 'wkTankCleaned', 'wkChlorination', 'wkLeak'],
+        Designation.mnp => const ['wkSiteVisit', 'wkKavalarCheck', 'wkProgress'],
+        Designation.vpSecretary => const ['wkTax', 'wkStaffCheck', 'wkAmenities', 'wkStreetLight', 'wkWaterCheck'],
+        Designation.zonalDyBdo => const ['wkVpInspect', 'wkRecords', 'wkSiteVisit', 'wkMeeting'],
+        Designation.dyBdoPanchayats || Designation.dyBdoRegular => const ['wkInspection', 'wkRecords', 'wkSiteVisit', 'wkMeeting'],
+        Designation.bdoVillage || Designation.bdoBlock => const ['wkInspection', 'wkVpInspect', 'wkMeeting', 'wkRecords'],
+        Designation.districtMonitor => const ['wkInspection', 'wkMeeting'],
+      };
+
+  /// For people without a job title yet: neutral choices only.
+  static const genericWorkKinds = ['wkInspection', 'wkSiteVisit'];
+
   /// Designations that can sensibly hold [role] (for the admin's role picker).
   static List<Designation> forRole(Role role) => Designation.values.where((d) => d.role == role).toList();
 }

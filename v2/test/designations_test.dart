@@ -1,3 +1,4 @@
+import 'package:field_monitor/app/strings.dart';
 import 'package:field_monitor/domain/area.dart';
 import 'package:field_monitor/domain/designations.dart';
 import 'package:field_monitor/domain/roles.dart';
@@ -68,5 +69,17 @@ void main() {
     expect(AreaLevel.panchayat.childLevel, AreaLevel.habitation);
     expect(AreaLevel.habitation.childLevel, AreaLevel.location);
     expect(AreaLevel.fromKey('habitation'), AreaLevel.habitation);
+  });
+
+  test('each job reports only its own kind of work', () {
+    const en = Strings('en');
+    for (final d in Designation.values) {
+      expect(d.workKinds, isNotEmpty, reason: d.key);
+      for (final k in d.workKinds) {
+        expect(en.t(k), isNot(k), reason: 'missing text for $k');
+      }
+    }
+    expect(Designation.ohtOperator.workKinds, isNot(contains('wkGarbage')));
+    expect(Designation.thoomaiKavalar.workKinds, contains('wkGarbage'));
   });
 }
